@@ -1,0 +1,173 @@
+FROM nvidia/cuda:10.2-base-ubuntu18.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install some basic utilities
+
+RUN apt-get update && apt-get install -y \
+
+    curl \
+
+    ca-certificates \
+
+    sudo \
+
+    git \
+
+    bzip2 \
+
+    wget \
+
+    build-essential \ 
+
+    cmake \ 
+
+    unzip \
+
+    pkg-config \
+
+    libjpeg-dev \ 
+
+    libpng-dev \
+
+    libtiff-dev \
+
+    python-opencv \
+
+    python3-pip \
+
+    libx11-6 \
+
+ && rm -rf /var/lib/apt/lists/*
+
+
+RUN apt-get install python-opencv
+
+
+RUN apt-get install build-essential cmake unzip pkg-config unzip software-properties-common
+
+RUN apt-get install libjpeg-dev libpng-dev libtiff-dev
+
+RUN add-apt-repository "deb http://security.ubuntu.com/ubuntu xenial-security main"
+
+RUN apt update
+
+RUN apt install libjasper1 libjasper-dev
+
+RUN apt-get install libavcodec-dev libavformat-dev libswscale-dev libv4l-dev libxvidcore-dev libx264-dev libgtk-3-dev libatlas-base-dev gfortran python3-dev
+
+
+RUN wget -O opencv.zip https://github.com/opencv/opencv/archive/3.4.4.zip
+
+RUN wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/3.4.4.zip
+
+RUN unzip opencv.zip
+
+RUN unzip opencv_contrib.zip
+
+RUN mv opencv-3.4.4 opencv
+
+RUN mv opencv_contrib-3.4.4 opencv_contrib
+
+RUN pip3 install numpy
+
+RUN cd opencv
+
+RUN mkdir build
+
+RUN cd build
+
+RUN cmake -D CMAKE_BUILD_TYPE=RELEASE \
+    -D CMAKE_INSTALL_PREFIX=/usr/local \
+    -D WITH_CUDA=OFF \
+    -D INSTALL_PYTHON_EXAMPLES=ON \
+    -D OPENCV_EXTRA_MODULES_PATH=~/opencv_contrib/modules \
+    -D OPENCV_ENABLE_NONFREE=ON \
+    -D BUILD_EXAMPLES=ON ..
+
+RUN make -j4
+
+RUN make install
+RUN ldconfig
+
+RUN mv cv2.cpython-36m-x86_64-linux-gnu.so cv2.so
+
+RUN python3 -c "import cv2; print(cv2.version)"
+
+# Create a working directory
+
+RUN mkdir /app
+
+WORKDIR /app
+
+RUN pip3 install gdown
+
+RUN pip3 install pillow
+
+#RUN pip3 install python-opencv
+
+# Create a non-root user and switch to it
+
+RUN adduser --disabled-password --gecos '' --shell /bin/bash user \
+
+ && chown -R user:user /app
+
+RUN echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-user
+
+USER user
+
+
+# All users can use /home/user as their home directory
+
+ENV HOME=/home/user
+
+RUN chmod 777 /home/user
+
+COPY cnn_vae.py /app/
+
+RUN mkdir recons
+
+RUN mkdir carla_data_0
+RUN mkdir carla_data_2
+RUN mkdir carla_data_1
+
+RUN mkdir trained_models_ckpts
+
+
+# Install Miniconda and Python 3.8
+
+ENV CONDA_AUTO_UPDATE_CONDA=false
+
+ENV PATH=/home/user/miniconda/bin:$PATH
+
+RUN curl -sLo ~/miniconda.sh https://repo.continuum.io/miniconda/Miniconda3-py38_4.8.2-Linux-x86_64.sh \
+
+ && chmod +x ~/miniconda.sh \
+
+ && ~/miniconda.sh -b -p ~/miniconda \
+
+ && rm ~/miniconda.sh \
+
+ && conda install -y python==3.8.1 \
+
+ && conda clean -ya
+
+
+
+# CUDA 10.2-specific steps
+
+RUN conda install -y -c pytorch \
+
+    cudatoolkit=10.2 \
+
+    "pytorch=1.5.0=py3.8_cuda10.2.89_cudnn7.6.5_0" \
+
+    "torchvision=0.6.0=py38_cu102" \
+
+ && conda clean -ya
+
+
+
+# Set the default command to python3
+
+CMD ["python3", "cnn_vae.py", "--batch-size=64", "--download"]
