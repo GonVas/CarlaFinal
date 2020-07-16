@@ -18,6 +18,7 @@ from gym import error, spaces, make
 
 import CarlaGymEnv
 import sac_simple_channel 
+import rl_human
 #from algos import sac, random_agent, DQN_carla, policy_grads, reinforce, sac_mem, sac_a3c_dist, a3c, data_gatherer
 #from algos.models.cnn_vae import VAE, load_last_model, vae_train
 
@@ -189,8 +190,8 @@ def run():
         args.epochs = 2000 if args.epochs == 0 else args.epochs 
         args.maxram = 13
     else:
-        args.batch_size = 8
-        args.epochs = 10 if args.epochs == 0  else args.epochs 
+        args.batch_size = 4
+        args.epochs = 100 if args.epochs == 0  else args.epochs 
         args.maxram = 7
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -242,7 +243,9 @@ def run():
 
  
     env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True)
-    final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps)
+    #final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps)
+
+    final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
     final_pol = 'pol_model_final.tar'
     final_q1 = 'q1_model_final.tar'

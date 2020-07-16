@@ -635,18 +635,24 @@ class CarEnv:
             doi = calc_distance(ov_loc, collision_point)
 
 
-    def astar_wapoints_tolocs(self, start_loc, end_loc):
+
+    def astar_wapoints_tolocs(self, start_loc, end_loc, draw_waypoints=True):
 
         #end_waypoint = env.world.map.get_waypoint(carla.Location(0, 0, 0))
         #start_waypoint = env.world.map.get_waypoint(car.get_location())   
 
         map_ = self.world.get_map()
-        dao = GlobalRoutePlannerDAO(map_, 2.0)
+        dao = GlobalRoutePlannerDAO(map_, 5.0)
         grp = GlobalRoutePlanner(dao)                 
         grp.setup()
         #self.route_wayp_opts = grp.trace_route(start_waypoint.transform.location, end_waypoint.transform.location)
 
         self.route_wayp_opts = grp.trace_route(start_loc, end_loc)
+
+        if(len(self.route_wayp_opts) > 1):
+            self.route_wayp_opts.pop(0)
+
+        #import pudb; pudb.set_trace()
 
         self.route_locs_opts = []
 
@@ -657,7 +663,21 @@ class CarEnv:
 
             self.route_locs_opts.append((loc, opt))
 
+            if(draw_waypoints):
+                t = w_opt_tuple[0].transform
+                begin = t.location + carla.Location(z=0.5)
+                angle = math.radians(t.rotation.yaw)
+                end = begin + carla.Location(x=math.cos(angle), y=math.sin(angle))
+
+                color = carla.Color(255,0,0)
+                if(w_opt_tuple == self.route_wayp_opts[0]):
+                    color = carla.Color(0,255,0)
+
+                self.world.debug.draw_arrow(begin, end, arrow_size=0.3, life_time=15, color=color)
+
         self.indication = self.route_wayp_opts[0][1]
+
+
 
         #print("Calculated A* route got {:3d} waypoints".format(len(self.route_locs_opts)))
 
@@ -676,12 +696,14 @@ class CarEnv:
 
     def cal_time_reward(self, max_steps=1000):
 
-        done = False
+        #done = False
 
-        if(self.step_numb >= max_steps or self.episode_start + self.secs_per_episode < time.time()):
-            done = True
+        #if(self.step_numb >= max_steps or self.episode_start + self.secs_per_episode < time.time()):
+        #    done = True
 
-        return self.step_numb/max_steps, done
+        #return self.step_numb/max_steps, done
+
+        return -0.1, False
 
 
     def calc_waypoints_reward(self, min_dis=1.2, debug=False):
@@ -737,8 +759,8 @@ class CarEnv:
 
         new_d_dest = math.sqrt((self.vehicle.get_location().x-self.destination.x)**2 + (self.vehicle.get_location().y-self.destination.y)**2 + (self.vehicle.get_location().z-self.destination.z)**2)
         
-
-        if(new_d_dest <= 3):
+        if(new_d_dest <= 30):
+            print('Got to the objective')
             return 1, True
 
         if(self.step_numb <= 4 ):
@@ -925,7 +947,8 @@ class CarEnv:
             else:
                 return 0, False, info
 
-
+        if(d_done):
+            info = {'scen_sucess':1, 'scen_metric':-1}
 
         if(done == True):
             if(info == None):
