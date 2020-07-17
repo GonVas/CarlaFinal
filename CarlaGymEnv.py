@@ -689,7 +689,7 @@ class CarEnv:
         reward  = np.clip(kmh, 0, 40)*1.5/cruise_speed
 
         if(kmh < 8):
-            reward = -0.5
+            reward = -0.1
  
         return reward, False
 
@@ -755,13 +755,15 @@ class CarEnv:
     def locs_dist(self, loc1, loc2):
         return math.sqrt((loc1.x-loc2.x)**2 + (loc1.y-loc2.y)**2 + (loc1.z-loc2.z)**2)
 
+
+
     def cal_dis_reward(self, max_dis=100):
 
         new_d_dest = math.sqrt((self.vehicle.get_location().x-self.destination.x)**2 + (self.vehicle.get_location().y-self.destination.y)**2 + (self.vehicle.get_location().z-self.destination.z)**2)
         
         if(new_d_dest <= 30):
             print('Got to the objective')
-            return 1, True
+            return 10, True
 
         if(self.step_numb <= 4 ):
             self.initial_dist = new_d_dest
@@ -782,6 +784,8 @@ class CarEnv:
         #print('Distance Reward: {}'.format(reward))
 
         return reward, False
+
+
 
 
     def cal_collision_reward(self, debug=False):
@@ -948,7 +952,7 @@ class CarEnv:
                 return 0, False, info
 
         if(d_done):
-            info = {'scen_sucess':1, 'scen_metric':-1}
+            info = {'scen_sucess':1, 'scen_metric':10}
 
         if(done == True):
             if(info == None):
@@ -980,10 +984,16 @@ class CarEnv:
             #Discrete(3) -> 0, 1, 2 -> transform to -1, 0, 1
             thrt_action -= 1
             steer_action -= 1
-            self.vehicle.apply_control(carla.VehicleControl(throttle=thrt_action, steer=steer_action*self.steer_amt))
+            if(thrt_action > 0):
+                self.vehicle.apply_control(carla.VehicleControl(throttle=thrt_action, steer=steer_action*self.steer_amt))
+            else:
+                self.vehicle.apply_control(carla.VehicleControl(brake=-thrt_action, steer=steer_action*self.steer_amt))
         else:
             #self.vehicle.apply_control(carla.VehicleControl(throttle=action[0][0], steer=action[1][0]))
-            self.vehicle.apply_control(carla.VehicleControl(throttle=action[0].item(), steer=action[1].item()))
+            if(action[0].item() > 0):
+                self.vehicle.apply_control(carla.VehicleControl(throttle=action[0].item(), steer=action[1].item()))
+            else:
+                self.vehicle.apply_control(carla.VehicleControl(brake=-action[0].item(), steer=action[1].item()))
         
         reward, done, info = self.calculate_reward()
 

@@ -358,6 +358,47 @@ def soft_update(target, source, tau):
     for target_param, param in zip(target.parameters(), source.parameters()):
         target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
 
+import glob
+
+
+class LoadBuffer:
+
+  def __init__(self, save_dir):
+      self.files = glob.glob(save_dir+'*.npz')
+      self.max_size = len(self.files)
+      #self.buffer = deque(maxlen=max_size)
+
+  #def push(self, state, action, reward, next_state, done):
+  #    experience = (state, action, np.array([reward]), next_state, done)
+  #    self.buffer.append(experience)
+
+  def push(self, state, action, reward, next_state, done):
+    print('Expert Buffer, configed to not push anything')
+
+  def sample(self, batch_size):
+      state_batch = []
+      action_batch = []
+      reward_batch = []
+      next_state_batch = []
+      done_batch = []
+
+      batch = random.sample(self.files, batch_size)
+      for experience_file in batch:
+          data = np.load(experience_file)
+          old_obs_0, old_obs_1, action, rewards, obs_0, obs_1, done, info = data.values()
+
+
+          state_batch.append((torch.FloatTensor(old_obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(old_obs_1)))
+          action_batch.append(torch.FloatTensor(action))
+          #0.5, 1, 5, 1, 1
+          reward_batch.append(rewards[0]*0.5 + rewards[1] +  rewards[2]*5 + rewards[3] + rewards[4])
+          next_state_batch.append((torch.FloatTensor(obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(obs_1)))
+          done_batch.append(done)
+
+      return (state_batch, action_batch, np.expand_dims(reward_batch, axis=1), next_state_batch, done_batch)
+
+  def __len__(self):
+      return len(self.files)
 
 
 
@@ -737,6 +778,7 @@ class SAC():
             mask_batch = torch.FloatTensor(np.stack(mem_mask_batch)).to(self.device).unsqueeze(1)
 
 
+            #import pudb; pudb.set_trace()
             #next_st = 
             #st = (state_obs_batch, state_aug_batch)
 
@@ -833,7 +875,7 @@ def get_saliency(obs, model, action, std, device):
 import os
 os.environ["WANDB_MODE"] = "dryrun"
 
-def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./'):
+def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./'):
 
     #memory = BasicBuffer(hyperps['maxmem'])
 
@@ -842,6 +884,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     #wandb.init(project="offline-demo")
 
     memory = BasicBuffer(30)
+
+    expert_memory = LoadBuffer('./human_samples/')
 
     print('Batch size: {}'.format(hyperps['batch_size']))
     
@@ -929,7 +973,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             done |= total_steps == hyperps['max_steps']
 
-            memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), action, reward, (obs[0].to("cpu"), obs[1].to("cpu")), done)
+            if(total_steps >= 6500):
+                memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), action, reward, (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
             if(total_steps % 800 > 700):
                 get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
@@ -953,6 +998,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                     wandb.log({"all_scenario_wins_rewards": all_scenario_wins_rewards})
                 #{'scen_sucess':1, 'scen_metric':bench_rew}
 
+
+                """
                 if(len(system_of_eqs) != len(rewards_weights)):
                     system_of_eqs.append(torch.sum(torch.FloatTensor(all_rewards), 0).numpy())
                 else:
@@ -967,7 +1014,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                     rewards_weights[4] = (rewards_weights[4] * (1 - change_rate)) + change_rate * new_hyps[4]
                     print(rewards_weights)
                     system_of_eqs = []
-
+                """
 
                 #import pudb; pudb.set_trace()
 
@@ -976,10 +1023,16 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             #print('Len of Memory: {}, Batch Size: {}'.format(len(memory), hyperps['batch_size']))
 
-            if len(memory) > hyperps['batch_size']:
+            to_train_mem = memory
+            if(total_steps < 6500):
+                to_train_mem = expert_memory
+
+
+            if len(to_train_mem) > hyperps['batch_size']:
                 sac_agent.train()
                 print('Going to train')
-                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(memory, updates)
+
+                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates)
                 
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
 

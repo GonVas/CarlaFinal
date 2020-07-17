@@ -323,6 +323,9 @@ class KeyboardControl(object):
 
     def _parse_keys(self, keys, milliseconds):
         self._control.throttle = 1.0 if keys[K_UP] or keys[K_w] else 0.0
+
+        self._control.throttle = -1.0 if keys[K_DOWN] or keys[K_s] else self._control.throttle
+
         #print('milliseconds: {}'.format(milliseconds))
         steer_increment = 5e-4 * 30
         if keys[K_LEFT] or keys[K_a]:
@@ -654,12 +657,13 @@ class HumanAgent():
 
 
 
-def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./human_samples'):
+def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./human_samples/'):
 
 
     env.reset()
     human_agent = HumanAgent(env, obs_state, num_actions, hyperps, device)
 
+    save_dir = '/run/media/gonvas/WDGreenHDD/carla/human_samples/'
 
     wall_start = time.time()
 
@@ -691,7 +695,8 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
     for epi in range(hyperps['max_epochs']):
         obs = env.reset()
         
-        old_obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
+        old_obs = obs
+        #old_obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
         #obs_t = torch.Tensor(obs).unsqueeze(0).transpose(1, 3).transpose(2, 3).float()
         
         total_steps += 1
@@ -709,9 +714,10 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
 
             all_rewards.append(reward)
 
+
             #print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4]))
             
-            reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4])/5
+            #reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4])/5
         
             #print('Final Sum Reward: {:.5f}'.format(reward))
 
@@ -725,9 +731,26 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
             #all_means.append([mean.cpu().detach().numpy()[0][0], mean.cpu().detach().numpy()[0][1]])
             #all_stds.append([std.cpu().detach().numpy()[0][0], std.cpu().detach().numpy()[0][1]])
 
-            obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
 
             done |= total_steps == hyperps['max_steps']
+
+            with open(save_dir+'trans_{}.npz'.format(total_steps), 'wb') as f:
+                #np.savez(f, )
+                #np.savez(f, action)
+                #np.savez(f, np.asarray(reward))
+                #np.savez(f, obs[0])
+                #np.savez(f, obs[1])
+                #np.savez(f, np.asarray(done))
+                if(info != None): #{'scen_sucess':1, 'scen_metric':-1}
+                    #np.savez(f, np.asarray([info['scen_sucess'], info['scen_metric']]))
+                    print(info)
+                    np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([info['scen_sucess'], info['scen_metric']]))
+                else:
+                    #np.savez(f, np.asarray([0, 0]))
+                    np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([0, 0]))
+
+
+            #obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
 
             #memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), action, reward, (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
