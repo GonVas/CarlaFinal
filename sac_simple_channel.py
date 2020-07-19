@@ -391,7 +391,8 @@ class LoadBuffer:
           state_batch.append((torch.FloatTensor(old_obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(old_obs_1)))
           action_batch.append(torch.FloatTensor(action))
           #0.5, 1, 5, 1, 1
-          reward_batch.append(rewards[0]*0.5 + rewards[1] +  rewards[2]*5 + rewards[3] + rewards[4])
+          #reward_batch.append(rewards[0]*0.5 + rewards[1] +  rewards[2]*5 + rewards[3] + rewards[4] + 1.5)
+          reward_batch.append(2)
           next_state_batch.append((torch.FloatTensor(obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(obs_1)))
           done_batch.append(done)
 
@@ -873,9 +874,9 @@ def get_saliency(obs, model, action, std, device):
 
 
 import os
-os.environ["WANDB_MODE"] = "dryrun"
+#os.environ["WANDB_MODE"] = "dryrun"
 
-def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./'):
+def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./'):
 
     #memory = BasicBuffer(hyperps['maxmem'])
 
@@ -937,6 +938,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), r
 
         for step_numb in range(hyperps['max_steps']):
 
+
             sac_agent.eval()
 
             action, log_prob, mean, std = sac_agent.sample(old_obs) 
@@ -952,7 +954,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), r
             wandb.log({'reward_vel':w_vel*reward[0], 'reward_time':w_t*reward[1], 'reward_dist':w_dis*reward[2], 'reward_col':w_col*reward[3], 'reward_lane':w_lan*reward[4]})
 
             reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4])/5
-        
+
+
             print('Final Sum Reward: {:.5f}'.format(reward))
 
             all_final_rewards.append(reward)
@@ -971,7 +974,6 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), r
 
             obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
 
-            done |= total_steps == hyperps['max_steps']
 
             if(total_steps >= 6500):
                 memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), action, reward, (obs[0].to("cpu"), obs[1].to("cpu")), done)
@@ -1028,6 +1030,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), r
                 to_train_mem = expert_memory
 
 
+            done |= total_steps == hyperps['max_steps']
+
+
             if len(to_train_mem) > hyperps['batch_size']:
                 sac_agent.train()
                 print('Going to train')
@@ -1040,6 +1045,26 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), r
                 #print('Updated Neural Nets. Losses: critic1:{:.4f}, critic2:{:.4f}, policy_loss:{:.4f}, entropy_loss: {:.4f}, alpha:{:.4f}.'.format(critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha))
             
 
+            if(total_steps != 0 and total_steps % 500 == 0):
+                print('Saving')
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.actor.state_dict(),
+                        }, save_dir+'sac_model_{}.tar'.format(total_steps))
+
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.critic1.state_dict(),
+                        }, save_dir+'sac_c1_model_{}.tar'.format(total_steps))
+
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.critic2.state_dict(),
+                        }, save_dir+'sac_c2_model_{}.tar'.format(total_steps))
+
+                wandb.save(save_dir+'sac_model_{}.tar'.format(total_steps))
+                wandb.save(save_dir+'sac_c1_model_{}.tar'.format(total_steps))
+                wandb.save(save_dir+'sac_c2_model_{}.tar'.format(total_steps))
     
     
     #sac_agent.save_models_final()
@@ -1062,6 +1087,286 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), r
     wandb.save(save_dir+'final_sac_model.tar')
     wandb.save(save_dir+'final_sac_c1_model.tar')
     wandb.save(save_dir+'final_sac_c2_model.tar')
+
+    return sac_agent
+
+
+def only_train(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./'):
+
+    #memory = BasicBuffer(hyperps['maxmem'])
+
+    wandb.init(config=hyperps)
+
+    #wandb.init(project="offline-demo")
+
+    expert_memory = LoadBuffer('./human_samples/')
+
+    print('Batch size: {}'.format(hyperps['batch_size']))
+    
+    sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
+
+    wandb.watch(sac_agent.actor)
+    wandb.watch(sac_agent.critic1)
+    wandb.watch(sac_agent.critic2)
+
+    wall_start = time.time()
+
+    total_steps = 0
+    updates = 0
+
+
+    for epi in range(hyperps['max_epochs']):
+
+        #old_obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
+        #obs_t = torch.Tensor(obs).unsqueeze(0).transpose(1, 3).transpose(2, 3).float()
+        
+        total_steps += 1
+
+        print('Epoch: {}, Max Epochs: {}'.format(epi, hyperps['max_epochs']))
+ 
+
+        for step_numb in range(hyperps['max_steps']):
+
+
+
+            sac_agent.train()
+            print('Going to train, step:{}'.format(total_steps))
+
+            critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(expert_memory, updates)
+            
+            wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
+
+            updates += 1
+            #print('Updated Neural Nets. Losses: critic1:{:.4f}, critic2:{:.4f}, policy_loss:{:.4f}, entropy_loss: {:.4f}, alpha:{:.4f}.'.format(critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha))
+        
+            total_steps += 1
+
+            if(total_steps != 0 and total_steps % 500 == 0):
+                print('Saving')
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.actor.state_dict(),
+                        }, save_dir+'sac_model_{}.tar'.format(total_steps))
+
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.critic1.state_dict(),
+                        }, save_dir+'sac_c1_model_{}.tar'.format(total_steps))
+
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.critic2.state_dict(),
+                        }, save_dir+'sac_c2_model_{}.tar'.format(total_steps))
+
+                wandb.save(save_dir+'sac_model_{}.tar'.format(total_steps))
+                wandb.save(save_dir+'sac_c1_model_{}.tar'.format(total_steps))
+                wandb.save(save_dir+'sac_c2_model_{}.tar'.format(total_steps))
+    
+    
+    #sac_agent.save_models_final()
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.actor.state_dict(),
+            }, save_dir+'final_sac_model.tar')
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.critic1.state_dict(),
+            }, save_dir+'final_sac_c1_model.tar')
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.critic2.state_dict(),
+            }, save_dir+'final_sac_c2_model.tar')
+
+    wandb.save(save_dir+'final_sac_model.tar')
+    wandb.save(save_dir+'final_sac_c1_model.tar')
+    wandb.save(save_dir+'final_sac_c2_model.tar')
+
+    return sac_agent
+
+
+
+
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import torchvision
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import datasets, transforms
+
+
+
+class PolicyDataset(Dataset):
+    def __init__(self, filelist, batch_size, device):
+
+        self.device = device
+        self.filelist = filelist
+        self.batch_size = batch_size
+        #print('Amount of images of carla env : {}'.format(len(filelist)))
+
+
+    def __len__(self):
+        #return 20 * round((len(self.filelist) - 20)/20)
+        return len(self.filelist)
+
+
+    def __getitem__(self, idx):
+
+        state_batch = []
+        action_batch = []
+
+        data = np.load(self.filelist[idx])
+        old_obs_0, old_obs_1, action, rewards, obs_0, obs_1, done, info = data.values()
+
+        state_batch.append((torch.FloatTensor(old_obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(old_obs_1)))
+          
+        action_batch.append(torch.FloatTensor(action))
+        #0.5, 1, 5, 1, 1
+        #reward_batch.append(rewards[0]*0.5 + rewards[1] +  rewards[2]*5 + rewards[3] + rewards[4] + 1.5)
+        #reward_batch.append(2)
+        #next_state_batch.append((torch.FloatTensor(obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(obs_1)))
+        #done_batch.append(done)
+
+        return (state_batch, action_batch)
+
+
+
+class CriticDataset(Dataset):
+    def __init__(self, filelist, batch_size, device):
+
+        self.device = device
+        self.filelist = filelist
+        self.batch_size = batch_size
+        #print('Amount of images of carla env : {}'.format(len(filelist)))
+
+
+    def __len__(self):
+        #return 20 * round((len(self.filelist) - 20)/20)
+        return len(self.filelist)
+
+
+    def __getitem__(self, idx):
+        state_batch = []
+        action_batch = []
+        reward_batch = []
+
+        data = np.load(self.filelist[idx])
+        old_obs_0, old_obs_1, action, rewards, obs_0, obs_1, done, info = data.values()
+
+        state_batch.append((torch.FloatTensor(old_obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(old_obs_1)))
+          
+        action_batch.append(torch.FloatTensor(action))
+        #0.5, 1, 5, 1, 1
+        reward_batch.append(rewards[0]*0.5 + rewards[1] +  rewards[2]*5 + rewards[3] + rewards[4] + 1.5)
+        #reward_batch.append(2)
+        #next_state_batch.append((torch.FloatTensor(obs_0).unsqueeze(0).transpose(1, 3).transpose(2, 3)/255, torch.FloatTensor(obs_1)))
+        #done_batch.append(done)
+
+        return (state_batch, action_batch, reward_batch)
+
+
+
+
+def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./'):
+
+    #memory = BasicBuffer(hyperps['maxmem'])
+
+    wandb.init(config=hyperps)
+
+    #wandb.init(project="offline-demo")
+
+    print('Batch size: {}'.format(hyperps['batch_size']))
+
+    batch_size = hyperps['batch_size']
+    
+    sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
+
+    wandb.watch(sac_agent.actor)
+    wandb.watch(sac_agent.critic1)
+    wandb.watch(sac_agent.critic2)
+
+    wall_start = time.time()
+
+    total_steps = 0
+    updates = 0
+
+    critic_net = sac_agent.critic1
+    policy_net = sac_agent.actor
+
+
+    files = glob.glob('./human_samples/' + '*.npz')
+
+    files_train, files_val, files_unseen = files[0:int(len(files)*0.7)], files[int(len(files)*0.7):int(len(files)*0.9)], files[int(len(files)*0.9):len(files)]
+
+
+
+    policy_dataset = PolicyDataset(files_train, batch_size, device)
+
+    critic_dataset = CriticDataset(files_train, batch_size, device)
+
+
+    #import pudb; pudb.set_trace()
+
+
+    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=batch_size, num_workers=4)
+
+    epochs = 100
+
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(policy_net.parameters(), lr=0.001, momentum=0.9)
+
+    for i in range(epochs):
+
+        train_loss = 0
+
+        for batch_idx, data in enumerate(train_loader):
+            #data = load_batch(batch_idx, True)
+            #import pudb; pudb.set_trace()
+            data_img = data[0][0]
+            data_action = data[1]
+
+            optimizer.zero_grad()
+
+            #import pudb; pudb.set_trace()
+
+            import pudb; pudb.set_trace()
+
+            mu, log_std = policy_net(data_img)
+
+            
+
+            outputs = torch.cat(mu, log_std, dim=1)
+
+            loss = criterion(outputs, data_action)
+            loss.backward()
+            train_loss += loss.item()
+            optimizer.step()
+
+            if(batch_idx != 0 and batch_idx % log_step == 0):
+                print('Epoch: {}, Train Loss: {}, this batch_loss : {}'.format(epoch, train_loss, loss.item()))
+
+
+    #sac_agent.save_models_final()
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.actor.state_dict(),
+            }, save_dir+'bc_final_sac_model.tar')
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.critic1.state_dict(),
+            }, save_dir+'bc_final_sac_c1_model.tar')
+
+
+    wandb.save(save_dir+'bc_final_sac_model.tar')
+    wandb.save(save_dir+'bc_final_sac_c1_model.tar')
+
 
     return sac_agent
 
