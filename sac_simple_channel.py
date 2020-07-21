@@ -1271,7 +1271,7 @@ class CriticDataset(Dataset):
 
 
 
-def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./'):
+def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
 
     #memory = BasicBuffer(hyperps['maxmem'])
 
@@ -1317,32 +1317,51 @@ def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("
     epochs = 100
 
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(policy_net.parameters(), lr=0.001, momentum=0.9)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
 
-    for i in range(epochs):
+    for epoch in range(epochs):
 
         train_loss = 0
 
         for batch_idx, data in enumerate(train_loader):
             #data = load_batch(batch_idx, True)
             #import pudb; pudb.set_trace()
-            data_img = data[0][0]
-            data_action = data[1]
+            data_img, data_img_aug = data[0][0]
+            data_img = data_img.squeeze(1)
+
+            data_action = data[1][0]
 
             optimizer.zero_grad()
 
             #import pudb; pudb.set_trace()
 
-            import pudb; pudb.set_trace()
-
-            mu, log_std = policy_net(data_img)
-
+            mean, log_std = policy_net((data_img, data_img_aug))
             
+            log_std = torch.tanh(log_std)
+            log_std = hyperps['log_std_min'] + 0.5 * (hyperps['log_std_max'] - hyperps['log_std_min']) * (log_std + 1)
 
-            outputs = torch.cat(mu, log_std, dim=1)
+            std = log_std.exp()
+            normal = Normal(mean, std)
+    
+            x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+            y_t = torch.tanh(x_t)
 
-            loss = criterion(outputs, data_action)
+            pol_action = y_t * hyperps['action_scale'] + hyperps['action_bias']
+            
+            
+            #log_prob = normal.log_prob(x_t)
+            
+            # Enforcing Action Bound
+
+            #log_prob = log_prob - torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
+            #log_prob = log_prob.sum(1, keepdim=True)
+
+            #mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
+
+            #outputs = torch.cat(mu, log_std, dim=1)
+
+            loss = criterion(pol_action, data_action)
             loss.backward()
             train_loss += loss.item()
             optimizer.step()
@@ -1350,8 +1369,14 @@ def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("
             if(batch_idx != 0 and batch_idx % log_step == 0):
                 print('Epoch: {}, Train Loss: {}, this batch_loss : {}'.format(epoch, train_loss, loss.item()))
 
+        if(epoch != 0 and epoch % 5 == 0):
+            print('Saving')
+            torch.save({
+                'steps': total_steps,
+                'model_state_dict': sac_agent.actor.state_dict(),
+                }, save_dir+'sac_model_{}_bl.tar'.format(total_steps))
 
-    #sac_agent.save_models_final()
+            wandb.save(save_dir+'sac_model_{}_bl.tar'.format(total_steps))
 
     torch.save({
             'steps': total_steps,
