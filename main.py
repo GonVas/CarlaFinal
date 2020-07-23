@@ -244,8 +244,8 @@ def run():
 
  
     env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True)
-    final_nn = sac_simple_channel.behavior_cloning(env, ((300, 900), 3), 2, hyperps)
-    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
+    #final_nn = sac_simple_channel.behavior_cloning(env, ((300, 900), 3), 2, hyperps)
+    final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
     final_pol = 'pol_model_final.tar'

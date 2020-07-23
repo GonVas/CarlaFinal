@@ -579,7 +579,7 @@ def metrify(obs, steps, wall_start, all_actions, all_pol_stats, all_stds, all_me
 
 
 
-def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), render=True, metrified=True):
+def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True):
 
     #memory = BasicBuffer(hyperps['maxmem'])
 
@@ -595,7 +595,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cuda"), r
 
     #import pudb; pudb.set_trace()
     
-    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
 
     sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
 

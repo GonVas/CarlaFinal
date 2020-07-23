@@ -60,6 +60,8 @@ import weakref
 import math
 import random
 
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -142,7 +144,7 @@ MODULE_WORLD = 'WORLD'
 MODULE_HUD = 'HUD'
 MODULE_INPUT = 'INPUT'
 
-PIXELS_PER_METER = 12
+PIXELS_PER_METER = 10
 
 MAP_DEFAULT_SCALE = 0.1
 HERO_DEFAULT_SCALE = 1.0
@@ -399,7 +401,7 @@ class TrafficLightSurfaces(object):
     def __init__(self):
         def make_surface(tl):
             w = 40
-            surface = pygame.Surface((w, 3 * w), pygame.SRCALPHA)
+            surface = pygame.Surface((w, 3 * w), pygame.SRCALPHA, 32)
             surface.fill(COLOR_ALUMINIUM_5 if tl != 'h' else COLOR_ORANGE_2)
             if tl != 'h':
                 hw = int(w / 2)
@@ -790,7 +792,8 @@ class ModuleWorld(object):
         self.town_map = None
         self.actors_with_transforms = []
         # Store necessary modules
-        self.module_hud = None
+        #self.module_hud = None
+        self.module_hud_dim = [1280, 720]
         self.module_input = None
 
         self.surface_size = [0, 0]
@@ -846,10 +849,12 @@ class ModuleWorld(object):
             show_spawn_points=self.args.show_spawn_points)
 
         # Store necessary modules
-        self.module_hud = module_manager.get_module(MODULE_HUD)
-        self.module_input = module_manager.get_module(MODULE_INPUT)
+        #self.module_hud = module_manager.get_module(MODULE_HUD)
+        #self.module_input = module_manager.get_module(MODULE_INPUT)
 
-        self.original_surface_size = min(self.module_hud.dim[0], self.module_hud.dim[1])
+
+
+        self.original_surface_size = min(self.module_hud_dim[0], self.module_hud_dim[1])
         self.surface_size = self.map_image.big_map_surface.get_width()
 
         self.scaled_size = int(self.surface_size)
@@ -862,13 +867,13 @@ class ModuleWorld(object):
         self.vehicle_id_surface = pygame.Surface((self.surface_size, self.surface_size)).convert()
         self.vehicle_id_surface.set_colorkey(COLOR_BLACK)
 
-        self.border_round_surface = pygame.Surface(self.module_hud.dim, pygame.SRCALPHA).convert()
+        self.border_round_surface = pygame.Surface(self.module_hud_dim, pygame.SRCALPHA, 32).convert()
         self.border_round_surface.set_colorkey(COLOR_WHITE)
         self.border_round_surface.fill(COLOR_BLACK)
 
-        center_offset = (int(self.module_hud.dim[0] / 2), int(self.module_hud.dim[1] / 2))
-        pygame.draw.circle(self.border_round_surface, COLOR_ALUMINIUM_1, center_offset, int(self.module_hud.dim[1] / 2))
-        pygame.draw.circle(self.border_round_surface, COLOR_WHITE, center_offset, int((self.module_hud.dim[1] - 8) / 2))
+        center_offset = (int(self.module_hud_dim[0] / 2), int(self.module_hud_dim[1] / 2))
+        pygame.draw.circle(self.border_round_surface, COLOR_ALUMINIUM_1, center_offset, int(self.module_hud_dim[1] / 2))
+        pygame.draw.circle(self.border_round_surface, COLOR_WHITE, center_offset, int((self.module_hud_dim[1] - 8) / 2))
 
         scaled_original_size = self.original_surface_size * (1.0 / 0.9)
         self.hero_surface = pygame.Surface((scaled_original_size, scaled_original_size)).convert()
@@ -879,8 +884,8 @@ class ModuleWorld(object):
         # Start hero mode by default
         self.select_hero_actor()
         self.hero_actor.set_autopilot(False)
-        self.module_input.wheel_offset = HERO_DEFAULT_SCALE
-        self.module_input.control = carla.VehicleControl()
+        #self.module_input.wheel_offset = HERO_DEFAULT_SCALE
+        #self.module_input.control = carla.VehicleControl()
 
         weak_self = weakref.ref(self)
         self.world.on_tick(lambda timestamp: ModuleWorld.on_world_tick(weak_self, timestamp))
@@ -916,7 +921,7 @@ class ModuleWorld(object):
         self.actors_with_transforms = [(actor, actor.get_transform()) for actor in actors]
         if self.hero_actor is not None:
             self.hero_transform = self.hero_actor.get_transform()
-        self.update_hud_info(clock)
+        #self.update_hud_info(clock)
 
     def update_hud_info(self, clock):
         hero_mode_text = []
@@ -1000,9 +1005,9 @@ class ModuleWorld(object):
                     break
                 vehicle_type = get_actor_display_name(vehicle, truncate=22)
                 info_text.append('% 5d %s' % (vehicle.id, vehicle_type))
-        module_manager.get_module(MODULE_HUD).add_info(
-            'NEARBY VEHICLES',
-            info_text)
+        #module_manager.get_module(MODULE_HUD).add_info(
+        #    'NEARBY VEHICLES',
+        #    info_text)
 
         return (vehicles, traffic_lights, speed_limits, walkers)
 
@@ -1108,6 +1113,7 @@ class ModuleWorld(object):
             corners = [world_to_pixel(p) for p in corners]
             pygame.draw.lines(surface, color, False, corners, int(math.ceil(4.0 * self.map_image.scale)))
 
+
     def render_actors(self, surface, vehicles, traffic_lights, speed_limits, walkers):
         # Static actors
         self._render_traffic_lights(surface, [tl[0] for tl in traffic_lights], self.map_image.world_to_pixel)
@@ -1123,26 +1129,6 @@ class ModuleWorld(object):
         self.vehicle_id_surface.set_clip(clipping_rect)
         self.result_surface.set_clip(clipping_rect)
 
-    def _compute_scale(self, scale_factor):
-        m = self.module_input.mouse_pos
-
-        # Percentage of surface where mouse position is actually
-        px = (m[0] - self.scale_offset[0]) / float(self.prev_scaled_size)
-        py = (m[1] - self.scale_offset[1]) / float(self.prev_scaled_size)
-
-        # Offset will be the previously accumulated offset added with the
-        # difference of mouse positions in the old and new scales
-        diff_between_scales = ((float(self.prev_scaled_size) * px) - (float(self.scaled_size) * px),
-                               (float(self.prev_scaled_size) * py) - (float(self.scaled_size) * py))
-
-        self.scale_offset = (self.scale_offset[0] + diff_between_scales[0],
-                             self.scale_offset[1] + diff_between_scales[1])
-
-        # Update previous scale
-        self.prev_scaled_size = self.scaled_size
-
-        # Scale performed
-        self.map_image.scale_map(scale_factor)
 
     def render(self, display):
         if self.actors_with_transforms is None:
@@ -1150,10 +1136,10 @@ class ModuleWorld(object):
         self.result_surface.fill(COLOR_BLACK)
         vehicles, traffic_lights, speed_limits, walkers = self._split_actors()
 
-        scale_factor = self.module_input.wheel_offset
-        self.scaled_size = int(self.map_image.width * scale_factor)
-        if self.scaled_size != self.prev_scaled_size:
-            self._compute_scale(scale_factor)
+        scale_factor = 1 #self.module_input.wheel_offset
+        #self.scaled_size = int(self.map_image.width * scale_factor)
+        #if self.scaled_size != self.prev_scaled_size:
+        #    self._compute_scale(scale_factor)
 
         # Render Actors
 
@@ -1166,8 +1152,8 @@ class ModuleWorld(object):
             walkers)
 
         # Render Ids
-        self.module_hud.render_vehicles_ids(self.vehicle_id_surface, vehicles,
-                                            self.map_image.world_to_pixel, self.hero_actor, self.hero_transform)
+        #self.module_hud.render_vehicles_ids(self.vehicle_id_surface, vehicles,
+        #                                    self.map_image.world_to_pixel, self.hero_actor, self.hero_transform)
 
         # Blit surfaces
         surfaces = ((self.map_image.surface, (0, 0)),
@@ -1217,20 +1203,24 @@ class ModuleWorld(object):
             display.blit(rotated_result_surface, rotation_pivot)
 
             display.blit(self.border_round_surface, (0, 0))
+
+        """
         else:
             # Translation offset
+            print(self.module_input.mouse_offset[0])
             translation_offset = (self.module_input.mouse_offset[0] * scale_factor + self.scale_offset[0],
                                   self.module_input.mouse_offset[1] * scale_factor + self.scale_offset[1])
             center_offset = (abs(display.get_width() - self.surface_size) / 2 * scale_factor, 0)
 
             # Apply clipping rect
             clipping_rect = pygame.Rect(-translation_offset[0] - center_offset[0], -translation_offset[1],
-                                        self.module_hud.dim[0], self.module_hud.dim[1])
+                                        self.module_hud_dim[0], self.module_hud_dim[1])
             self.clip_surfaces(clipping_rect)
             Util.blits(self.result_surface, surfaces)
 
             display.blit(self.result_surface, (translation_offset[0] + center_offset[0],
                                                translation_offset[1]))
+        """
 
     def destroy(self):
         if self.spawned_hero is not None:
@@ -1252,8 +1242,9 @@ class ModuleInput(object):
         self._autopilot_enabled = False
 
     def start(self):
-        hud = module_manager.get_module(MODULE_HUD)
-        hud.notification("Press 'H' or '?' for help.", seconds=4.0)
+        #hud = module_manager.get_module(MODULE_HUD)
+        #hud.notification("Press 'H' or '?' for help.", seconds=4.0)
+        pass
 
     def render(self, display):
         pass
@@ -1262,6 +1253,8 @@ class ModuleInput(object):
         self.parse_input(clock)
 
     def _parse_events(self):
+        pass
+        """
         self.mouse_pos = pygame.mouse.get_pos()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -1269,24 +1262,24 @@ class ModuleInput(object):
             elif event.type == pygame.KEYUP:
                 if self._is_quit_shortcut(event.key):
                     exit_game()
-                elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
-                    module_hud = module_manager.get_module(MODULE_HUD)
-                    module_hud.help.toggle()
-                elif event.key == K_TAB:
-                    module_world = module_manager.get_module(MODULE_WORLD)
-                    module_hud = module_manager.get_module(MODULE_HUD)
-                    if module_world.hero_actor is None:
-                        module_world.select_hero_actor()
-                        self.wheel_offset = HERO_DEFAULT_SCALE
-                        self.control = carla.VehicleControl()
-                        module_hud.notification('Hero Mode')
-                    else:
-                        self.wheel_offset = MAP_DEFAULT_SCALE
-                        self.mouse_offset = [0, 0]
-                        self.mouse_pos = [0, 0]
-                        module_world.scale_offset = [0, 0]
-                        module_world.hero_actor = None
-                        module_hud.notification('Map Mode')
+                #elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
+                #    module_hud = module_manager.get_module(MODULE_HUD)
+                #    module_hud.help.toggle()
+                #elif event.key == K_TAB:
+                #    module_world = module_manager.get_module(MODULE_WORLD)
+                #    module_hud = module_manager.get_module(MODULE_HUD)
+                #    if module_world.hero_actor is None:
+                #        module_world.select_hero_actor()
+                #        self.wheel_offset = HERO_DEFAULT_SCALE
+                #        self.control = carla.VehicleControl()
+                #        module_hud.notification('Hero Mode')
+                #    else:
+                #        self.wheel_offset = MAP_DEFAULT_SCALE
+                #        self.mouse_offset = [0, 0]
+                #        self.mouse_pos = [0, 0]
+                #        module_world.scale_offset = [0, 0]
+                #        module_world.hero_actor = None
+                #        module_hud.notification('Map Mode')
                 elif event.key == K_F1:
                     module_hud = module_manager.get_module(MODULE_HUD)
                     module_hud.show_info = not module_hud.show_info
@@ -1323,6 +1316,7 @@ class ModuleInput(object):
                     self.wheel_offset -= self.wheel_amount
                     if self.wheel_offset <= 0.1:
                         self.wheel_offset = 0.1
+            """
 
     def _parse_keys(self, milliseconds):
         keys = pygame.key.get_pressed()
@@ -1372,48 +1366,55 @@ module_manager = ModuleManager()
 # -- Game Loop ---------------------------------------------------------------
 # ==============================================================================
 
+import cv2
 
 def game_loop(args):
-    try:
-        # Init Pygame
-        pygame.init()
-        display = pygame.display.set_mode(
-            (args.width, args.height),
-            pygame.HWSURFACE | pygame.DOUBLEBUF)
-        pygame.display.set_caption(args.description)
 
-        font = pygame.font.Font(pygame.font.get_default_font(), 20)
-        text_surface = font.render('Rendering map...', True, COLOR_WHITE)
-        display.blit(text_surface, text_surface.get_rect(center=(args.width / 2, args.height / 2)))
+    # Init Pygame
+    pygame.init()
+    display = pygame.display.set_mode(
+        (args.width, args.height),
+        pygame.HWSURFACE | pygame.DOUBLEBUF)
+    pygame.display.set_caption(args.description)
+
+    font = pygame.font.Font(pygame.font.get_default_font(), 20)
+    text_surface = font.render('Rendering map...', True, COLOR_WHITE)
+    display.blit(text_surface, text_surface.get_rect(center=(args.width / 2, args.height / 2)))
+    pygame.display.flip()
+
+    # Init modules
+    #input_module = ModuleInput(MODULE_INPUT)
+    #hud_module = ModuleHUD(MODULE_HUD, args.width, args.height)
+    world_module = ModuleWorld(MODULE_WORLD, args, timeout=2.0)
+
+    # Register Modules
+    module_manager.register_module(world_module)
+    #module_manager.register_module(hud_module)
+    #module_manager.register_module(input_module)
+
+    #module_manager.start_modules()
+    world_module.start()
+
+    clock = pygame.time.Clock()
+    while True:
+        clock.tick_busy_loop(60)
+        display.fill(COLOR_ALUMINIUM_4)
+        #module_manager.tick(clock)
+        world_module.tick(clock)
+        world_module.render(display)
+        #module_manager.render(display)
+
+        #import pudb; pudb.set_trace()
+
+        img_numpy = pygame.surfarray.array3d(display)
+
+        #cv2.imshow('Pygame Surface', img_numpy)
+        #cv2.waitKey(1)
+
+        #pil_string_image = pygame.image.tostring(rImage, "RGBA",False)
+        #pil_image = Image.fromstring("RGBA",(660,660),pil_string_image)
+
         pygame.display.flip()
-
-        # Init modules
-        input_module = ModuleInput(MODULE_INPUT)
-        hud_module = ModuleHUD(MODULE_HUD, args.width, args.height)
-        world_module = ModuleWorld(MODULE_WORLD, args, timeout=2.0)
-
-        # Register Modules
-        module_manager.register_module(world_module)
-        module_manager.register_module(hud_module)
-        module_manager.register_module(input_module)
-
-        module_manager.start_modules()
-
-        clock = pygame.time.Clock()
-        while True:
-            clock.tick_busy_loop(60)
-
-            module_manager.tick(clock)
-            module_manager.render(display)
-
-            pygame.display.flip()
-
-    except KeyboardInterrupt:
-        print('\nCancelled by user. Bye!')
-
-    finally:
-        if world_module is not None:
-            world_module.destroy()
 
 def exit_game():
     module_manager.clear_modules()
@@ -1488,6 +1489,7 @@ def main():
     logging.info('listening to server %s:%s', args.host, args.port)
     print(__doc__)
 
+    #import pudb; pudb.set_trace()
     game_loop(args)
 
 if __name__ == '__main__':
