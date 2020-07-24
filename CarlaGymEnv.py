@@ -6,6 +6,7 @@ import time
 import numpy as np
 from numpy.linalg import inv
 import math
+from math import pi
 import datetime
 import collections
 import re
@@ -1374,7 +1375,7 @@ class CarEnv:
         lidar.set_attribute('upper_fov',str(10))
         lidar.set_attribute('lower_fov',str(-30))
         lidar_location = carla.Location(0,0,2.5)
-        lidar_rotation = carla.Rotation(0,90,0)
+        lidar_rotation = carla.Rotation(0,0,0)
         lidar_transform = carla.Transform(lidar_location,lidar_rotation)
 
         self.lidar_transform = carla.Transform(lidar_location,lidar_rotation)
@@ -1424,7 +1425,7 @@ class CarEnv:
     def process_lidar(self, data):
 
         #img_h, img_w, height, width = 300
-
+        """
 
         WINDOW_WIDTH = 200
         WINDOW_HEIGHT = 160
@@ -1439,8 +1440,114 @@ class CarEnv:
 
         lidar_data = np.asarray(data.raw_data, np.int32).reshape(-1, 4)
 
+        rot = [0, 270, 0]
+        # pitch (Y) - yaw (Z) - roll (X)
+        """
+
+
+
+        
+
+        #rot = [0, 3*pi/2, 0]
+
+
+        #c = [130, 125, 250]   
+
+        #print(data.transform.location)
+        #print(np.asarray(data.raw_data).reshape(-1, 4)[:10])
+
+        #data_ = np.asarray(data.raw_data).reshape(-1, 4)
+
+        #print('Mean_x : {}, Max_x:{}, Min_y:{}'.format(data_[:, 0].mean(), data_[:, 0].max(), data_[:, 0].min()))
+
+        #c = [200, -100, data.transform.location.z + 19]
+
+        #[130, 200, 250]
+
+        #c = [0.5, 0.5, 0.5]
+
+        #print([self.vehicle.get_transform().location.x, self.vehicle.get_transform().location.y, data.transform.location.z + 18])
+
+        #s = [300, 300]
+
+        #r = [300, 300, 1]
+
+        #e = [3, 3, 3]
+        #blank_image = np.zeros((300, 300, 3), np.uint32)
+        #cl_point = 10000000
+
+        #eps = 1e-6
+
+        #import pudb; pudb.set_trace()
+        """
+        for idx, point in enumerate(np.asarray(data.raw_data).reshape(-1, 4)):
+            
+            #point_no_depth = lidar_data[:, [0, 1, 2]]
+            #point_depth = lidar_data[:, 3]
+            #if(idx == 4826):
+            #    import pudb; pudb.set_trace()
+
+            a = point[:3] / 255
+            point_depth = point[3]
+
+            m_1 = np.asarray([[1, 0, 0], [0, np.cos(rot[0]), np.sin(rot[0])], [0, -np.sin(rot[0]), np.cos(rot[0])]])
+            m_2 = np.asarray([[np.cos(rot[1]), 0, -np.sin(rot[1])], [0, 1, 0], [np.sin(rot[1]), 0, np.cos(rot[1])]])
+            m_3 = np.asarray([[np.cos(rot[2]), np.sin(rot[2]), 0], [-np.sin(rot[2]), np.cos(rot[2]), 0], [0, 0, 1]])
+            vec = a - c
+
+            d_vec = m_1 @ m_2 @ m_3 @ vec
+
+            bx = int((d_vec[0] * s[0]) / (d_vec[2]*r[0] + eps)    *   r[2])
+            by = int((d_vec[1] * s[1]) / (d_vec[2]*r[1] + eps)    *   r[2])
+
+            if(bx > 0 and bx < 300 and by > 0 and by < 300):
+                #blank_image[bx, by][1] =  np.clip(point_depth + blank_image[bx, by][1], 0, cl_point)
+                #blank_image[bx, by][1] =  max(point_depth,  blank_image[bx, by][1])
+                blank_image[bx, by][1] += point_depth
+        """
+
+        hud_dim = [300, 300]
+
+        points = np.frombuffer(data.raw_data, dtype=np.dtype('f4'))
+        points = np.reshape(points, (int(points.shape[0] / 3), 3))
+        #points[:, [2]] *= -1
+
+        lidar_data = np.array(points[:, :2])
+        lidar_data *= min(hud_dim) / 100.0
+        lidar_data += (0.5 * hud_dim[0], 0.5 * hud_dim[1])
+        lidar_data = np.fabs(lidar_data)  # pylint: disable=E1111
+        lidar_data = lidar_data.astype(np.int32)
+        #lidar_data[2] *= -1
+        lidar_data = np.reshape(lidar_data, (-1, 2))
+        lidar_img_size = (hud_dim[0], hud_dim[1], 3)
+        lidar_img = np.zeros((lidar_img_size), dtype = int)
+
+#for idx, point in enumerate(lidar_data):
+    #import pudb; pudb.set_trace()
+#    lidar_img[point[0]][point[1]][1] += points[idx][3]*10
+    #lidar_img[point.T] = (0, points[idx][3] + lidar_img[point.T][1], 0)
+
+
+        lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
+
+
+        #for idx, point in enumerate(np.asarray(data.raw_data).reshape(-1, 4)):
+        #    point_depth = point[3]
+        #    blank_image[point[1]][point[2]][1]+= point_depth*0.001
+
+        #cv2.imwrite('./depth_test_{}.png'.format(15), lidar_img) 
+        print('Shwoing')
+        cv2.imshow('Proj_x_test', lidar_img.astype(np.uint8))
+        cv2.waitKey(0)
+        cv2.waitKey(1)
+        print('Shown')
+
+
+
+
 
         """
+        
         lidar_to_car_transform_matrix = CarEnv.get_matrix(self.lidar_transform)
         camera_to_car_transform_matrix = CarEnv.get_matrix(self.minimap_camera_transform)
 
@@ -1459,7 +1566,7 @@ class CarEnv:
                     print(x_2d, y_2d)
                     #draw_rect(x_2d, y_2d, rgb_image)
         """
-        
+
         """
         project_matrix = np.asarray([[1,0,0], [0,0,0], [0,0,1]])
         lidar_data = np.asarray(data.raw_data).reshape(-1, 4)
@@ -1492,7 +1599,7 @@ class CarEnv:
         #cv2.waitKey(1)
         """
 
-        if(self.global_step_numb % 10 == 0):
+        if(self.global_step_numb != 0 and self.global_step_numb % 10 == 0):
             data.save_to_disk('./data/lidar/%.6d.ply' % data.frame)
             with open('lidar_array_{}.npy'.format(self.global_step_numb), 'wb') as f:
                 np.save(f, np.asarray(data.raw_data))

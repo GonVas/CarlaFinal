@@ -1,7 +1,9 @@
 import numpy as np 
 import cv2
+from math import pi
 
 
+from scipy.spatial.transform import Rotation as R
 
 def gen(ld_data, depth_data, point, cl_point):
     blank_image = np.zeros((300, 300, 3), np.uint32)
@@ -27,9 +29,107 @@ def f2d_x(x):
 
 
 lidar_data = np.load('lidar_array_100.npy')
-lidar_data = lidar_data.reshape(-1, 4)
+#lidar_data = lidar_data.reshape(-1, 4)
+
+#
+
+roll = 2.6335
+pitch = 0.4506
+yaw = 1.1684
+
+hud_dim = [1000, 1000]
 
 import pudb; pudb.set_trace()
+
+points = np.frombuffer(lidar_data, dtype=np.dtype('f4'))
+points = np.reshape(points, (int(points.shape[0] / 3), 3))
+#points[:, [2]] *= -1
+
+lidar_data = np.array(points[:, :2])
+lidar_data *= min(hud_dim) / 100.0
+lidar_data += (0.5 * hud_dim[0], 0.5 * hud_dim[1])
+lidar_data = np.fabs(lidar_data)  # pylint: disable=E1111
+lidar_data = lidar_data.astype(np.int32)
+#lidar_data[2] *= -1
+lidar_data = np.reshape(lidar_data, (-1, 2))
+lidar_img_size = (hud_dim[0], hud_dim[1], 3)
+lidar_img = np.zeros((lidar_img_size), dtype = int)
+
+#for idx, point in enumerate(lidar_data):
+    #import pudb; pudb.set_trace()
+#    lidar_img[point[0]][point[1]][1] += points[idx][3]*10
+    #lidar_img[point.T] = (0, points[idx][3] + lidar_img[point.T][1], 0)
+
+
+lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
+
+#import pudb; pudb.set_trace()
+
+cv2.imshow('Lidar', lidar_img.astype(np.uint8))
+cv2.waitKey(0)
+
+
+
+
+"""
+rot = [0, 3*pi/2, 0]
+
+
+
+#c = [130, 125, 250]
+
+#c = [130, 200, 250]
+
+c = [0.5, 0.5 , 0.5]
+
+
+s = [300, 300]
+
+r = [30, 30, 1]
+
+#e = [3, 3, 3]
+blank_image = np.zeros((300, 300, 3), np.uint32)
+cl_point = 10000000
+
+eps = 1e-6
+
+#import pudb; pudb.set_trace()
+
+for idx, point in enumerate(lidar_data):
+    
+    #point_no_depth = lidar_data[:, [0, 1, 2]]
+    #point_depth = lidar_data[:, 3]
+    #if(idx == 4826):
+    #    import pudb; pudb.set_trace()
+
+    a = point[:3] / 255
+    point_depth = point[3]
+
+    m_1 = np.asarray([[1, 0, 0], [0, np.cos(rot[0]), np.sin(rot[0])], [0, -np.sin(rot[0]), np.cos(rot[0])]])
+    m_2 = np.asarray([[np.cos(rot[1]), 0, -np.sin(rot[1])], [0, 1, 0], [np.sin(rot[1]), 0, np.cos(rot[1])]])
+    m_3 = np.asarray([[np.cos(rot[2]), np.sin(rot[2]), 0], [-np.sin(rot[2]), np.cos(rot[2]), 0], [0, 0, 1]])
+    vec = a - c
+
+    d_vec = m_1 @ m_2 @ m_3 @ vec
+
+    bx = int((d_vec[0] * s[0]) / (d_vec[2]*r[0] + eps)    *   r[2])
+    by = int((d_vec[1] * s[1]) / (d_vec[2]*r[1] + eps)    *   r[2])
+
+    if(bx > 0 and bx < 300 and by > 0 and by < 300):
+        #blank_image[bx, by][1] =  np.clip(point_depth + blank_image[bx, by][1], 0, cl_point)
+        #blank_image[bx, by][1] =  max(point_depth,  blank_image[bx, by][1])
+        blank_image[bx, by][1] += point_depth
+
+
+
+cv2.imwrite('./depth_test_.png', blank_image / (blank_image.max()/255.0))
+
+cv2.imshow('Proj_x_test', blank_image / (blank_image.max()/255.0))
+cv2.waitKey(0)
+cv2.waitKey(1)
+
+"""
+
 
 
 """
@@ -60,126 +160,9 @@ y_max = v_fov_total/v_res # Theoretical max x value after shifting
 y_max = y_max + 5         # UGLY: Fudge factor because the calculations based on
                           # spec sheet do not seem to match the range of angles
                           # collected by sensor in the data.
-"""
-import matplotlib.pyplot as plt
-
-def lidar_to_2d_front_view(points,
-                           v_res,
-                           h_res,
-                           v_fov,
-                           val="depth",
-                           cmap="jet",
-                           saveto=None,
-                           y_fudge=0.0
-                           ):
-    """ Takes points in 3D space from LIDAR data and projects them to a 2D
-        "front view" image, and saves that image.
-
-    Args:
-        points: (np array)
-            The numpy array containing the lidar points.
-            The shape should be Nx4
-            - Where N is the number of points, and
-            - each point is specified by 4 values (x, y, z, reflectance)
-        v_res: (float)
-            vertical resolution of the lidar sensor used.
-        h_res: (float)
-            horizontal resolution of the lidar sensor used.
-        v_fov: (tuple of two floats)
-            (minimum_negative_angle, max_positive_angle)
-        val: (str)
-            What value to use to encode the points that get plotted.
-            One of {"depth", "height", "reflectance"}
-        cmap: (str)
-            Color map to use to color code the `val` values.
-            NOTE: Must be a value accepted by matplotlib's scatter function
-            Examples: "jet", "gray"
-        saveto: (str or None)
-            If a string is provided, it saves the image as this filename.
-            If None, then it just shows the image.
-        y_fudge: (float)
-            A hacky fudge factor to use if the theoretical calculations of
-            vertical range do not match the actual data.
-
-            For a Velodyne HDL 64E, set this value to 5.
-    """
-
-    # DUMMY PROOFING
-    assert len(v_fov) ==2, "v_fov must be list/tuple of length 2"
-    assert v_fov[0] <= 0, "first element in v_fov must be 0 or negative"
-    assert val in {"depth", "height", "reflectance"}, \
-        'val must be one of {"depth", "height", "reflectance"}'
-
-
-    x_lidar = points[:, 0]
-    y_lidar = points[:, 1]
-    z_lidar = points[:, 2]
-    r_lidar = points[:, 3] # Reflectance
-    # Distance relative to origin when looked from top
-    d_lidar = np.sqrt(x_lidar ** 2 + y_lidar ** 2)
-    # Absolute distance relative to origin
-    # d_lidar = np.sqrt(x_lidar ** 2 + y_lidar ** 2, z_lidar ** 2)
-
-    v_fov_total = -v_fov[0] + v_fov[1]
-
-    # Convert to Radians
-    v_res_rad = v_res * (np.pi/180)
-    h_res_rad = h_res * (np.pi/180)
-
-    # PROJECT INTO IMAGE COORDINATES
-    x_img = np.arctan2(-y_lidar, x_lidar)/ h_res_rad
-    y_img = np.arctan2(z_lidar, d_lidar)/ v_res_rad
-
-    # SHIFT COORDINATES TO MAKE 0,0 THE MINIMUM
-    x_min = -360.0 / h_res / 2  # Theoretical min x value based on sensor specs
-    x_img -= x_min              # Shift
-    x_max = 360.0 / h_res       # Theoretical max x value after shifting
-
-    y_min = v_fov[0] / v_res    # theoretical min y value based on sensor specs
-    y_img -= y_min              # Shift
-    y_max = v_fov_total / v_res # Theoretical max x value after shifting
-
-    y_max += y_fudge            # Fudge factor if the calculations based on
-                                # spec sheet do not match the range of
-                                # angles collected by in the data.
-
-    # WHAT DATA TO USE TO ENCODE THE VALUE FOR EACH PIXEL
-    if val == "reflectance":
-        pixel_values = r_lidar
-    elif val == "height":
-        pixel_values = z_lidar
-    else:
-        pixel_values = -d_lidar
-
-    # PLOT THE IMAGE
-    cmap = "jet"            # Color map to use
-    dpi = 130               # Image resolution
-    fig, ax = plt.subplots(figsize=(x_max/dpi, y_max/dpi), dpi=dpi)
-    ax.scatter(x_img,y_img, s=1, c=pixel_values, linewidths=0, alpha=1, cmap=cmap)
-    ax.set_facecolor((0, 0, 0)) # Set regions with no points to black
-    ax.axis('scaled')              # {equal, scaled}
-    ax.xaxis.set_visible(False)    # Do not draw axis tick marks
-    ax.yaxis.set_visible(False)    # Do not draw axis tick marks
-    plt.xlim([0, x_max])   # prevent drawing empty space outside of horizontal FOV
-    plt.ylim([0, y_max])   # prevent drawing empty space outside of vertical FOV
-
-    if saveto is not None:
-        fig.savefig(saveto, dpi=dpi, bbox_inches='tight', pad_inches=0.0)
-    else:
-        fig.show()
-
-
-HRES = 1        # horizontal resolution (assuming 20Hz setting)
-VRES = 0.1         # vertical res
-VFOV = (0, 10.0) # Field of view (-ve, +ve) along vertical axis
-Y_FUDGE = 1         # y fudge factor for velodyne HDL 64E
-
-lidar_to_2d_front_view(lidar_data, v_res=VRES, h_res=HRES, v_fov=VFOV, val="depth",
-                       saveto="/tmp/lidar_depth.png", y_fudge=Y_FUDGE)
 
 
 
-"""
 lidar_data_nodepth = lidar_data[:, [0, 1, 2]]
 lidar_just_depth = lidar_data[:, 3]
 
