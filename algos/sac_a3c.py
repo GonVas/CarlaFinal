@@ -355,6 +355,7 @@ class SharedAdam(torch.optim.Adam): # extend a pytorch optimizer so it shares gr
 
 
 
+
 def train_on_env(env_name, rank, lock, shared_model, shared_optimizer, obs_state, num_actions, hyperps, shared_mem, device=torch.device("cpu"), render=True):
 
     hyperps['gru_steps'] = 8
@@ -477,7 +478,6 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     writer.add_graph(summary_model, [(torch.randn(64, 412), torch.randn(64, 256))])
 
     print('Spwaning training processes')
-
 
 
     for rank in range(3):

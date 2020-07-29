@@ -715,6 +715,32 @@ class SAC():
     return action, log_prob, mean, std
 
 
+  def prob_action(self, obs, action_to_calc):
+    # returns probability given policy -> π(action|obs)
+
+    mean, log_std = self.actor.forward(obs)
+
+    log_std = torch.tanh(log_std)
+    log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
+
+    std = log_std.exp()
+    normal = Normal(mean, std)
+
+    y_t = torch.tanh(action_to_calc)
+
+    action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
+    
+    log_prob = normal.log_prob(action_to_calc)
+    
+    # Enforcing Action Bound
+
+    log_prob = log_prob - torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
+    log_prob = log_prob.sum(1, keepdim=True)
+
+
+    return torch.pow(2, log_prob)
+
+
   def try_load(self, save_dir='./project/savedmodels/rl/sac/'):
     print('Loading Model')
     paths = glob.glob(save_dir + '*_final.tar') ; step = 0
@@ -754,7 +780,7 @@ class SAC():
         print('\nFinal SAC saved model\n')
 
 
-  def update(self, memory, updates):
+  def update(self, memory, updates, expert_data=False):
         batch_size=self.hyperps['batch_size']
         gamma=self.hyperps['gamma']
         tau=self.hyperps['tau']
@@ -784,17 +810,25 @@ class SAC():
             #st = (state_obs_batch, state_aug_batch)
 
             with torch.no_grad():
+
                 next_state_action, next_state_log_pi, _, _ = self.sample((next_next_state_obs_batch, next_next_state_aug_batch))
                 qf1_next_target, qf2_next_target = self.critic_target((next_next_state_obs_batch, next_next_state_aug_batch), next_state_action)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
                 next_q_value = reward_batch + mask_batch * gamma * (min_qf_next_target)
-        
+            
+                is_cs = 1
 
-            qf1, qf2 = self.critic((next_next_state_obs_batch.detach(), next_next_state_aug_batch.detach()), action_batch.detach())  # Two Q-functions to mitigate positive bias in the policy improvement step
-            qf1_loss = F.mse_loss(qf1, next_q_value)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
-            qf2_loss = F.mse_loss(qf2, next_q_value)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
-            qf_loss = qf1_loss + qf2_loss
+                if(expert_data):
+                    prob_beh = self.prob_action((state_obs_batch, state_aug_batch), action_batch) + self.hyperps['epsilon']
+                    prob_expert = torch.ones_like(prob_beh) * 0.90 # Assume expert is almost confident on what it did
+                    is_cs = torch.min(torch.ones_like(prob_expert)*1.5, prob_expert/prob_beh)
 
+            qf1, qf2 = self.critic((state_obs_batch.detach(), state_aug_batch.detach()), action_batch.detach())  # Two Q-functions to mitigate positive bias in the policy improvement step
+            qf1_loss = F.mse_loss(qf1, next_q_value * is_cs)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
+            qf2_loss = F.mse_loss(qf2, next_q_value * is_cs)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
+            qf_loss = qf1_loss + qf2_loss 
+ 
+            #print('is_cs : {}'.format(is_cs))
 
             self.critic_optim.zero_grad()
             qf_loss.backward()
@@ -1026,8 +1060,10 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             #print('Len of Memory: {}, Batch Size: {}'.format(len(memory), hyperps['batch_size']))
 
             to_train_mem = memory
+            expert_data = False
             if(total_steps < 6500):
                 to_train_mem = expert_memory
+                expert_data = True
 
 
             done |= total_steps == hyperps['max_steps']
@@ -1037,7 +1073,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 sac_agent.train()
                 print('Going to train')
 
-                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates)
+                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, expert_data)
                 
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
 

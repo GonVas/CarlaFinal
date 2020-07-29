@@ -1363,6 +1363,7 @@ class CarEnv:
         self.front_camera_transform = carla.Transform(carla.Location(x=2.5, z=0.7))
         self.minimap_camera_transform = carla.Transform(location=carla.Location(x=0.0, y=0.0, z=100.0), rotation=carla.Rotation(pitch=270.0, yaw=0.0, roll=0.0))
 
+        """
         lidar = self.blueprint_library.find('sensor.lidar.ray_cast')
         #lidar.set_attribute("image_size_x", f"{self.car_im_width}")
         #lidar.set_attribute("image_size_y", f"{self.car_im_height}")
@@ -1388,10 +1389,11 @@ class CarEnv:
         #what_index4 = int(self.static_index) + 1 - 1
         lidar.listen(lambda data: self.process_lidar(data))
         self.actor_list.append((lidar))
-
+        """
         #def get_unreal_transform(self): 
             #to_unreal_transform = Transform(Rotation(yaw=90), Scale(z=-1))
             #return self.get_transform() * to_unreal_transform
+
     @staticmethod
     def get_matrix(transform):
         """
@@ -1629,7 +1631,8 @@ class CarEnv:
 
         self.vehicle.set_simulate_physics(True)
 
-        self.world_module.hero_actor = self.vehicle
+        if(self.display2d):
+            self.world_module.hero_actor = self.vehicle
 
         self.actor_list.append(self.vehicle)
 
