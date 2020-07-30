@@ -36,6 +36,8 @@ from PIL import Image, ImageDraw
 import wandb
 
 
+from architectures import ResNetRLGRU, ResNetRLGRUCritic
+
 # default `log_dir` is "runs" - we'll be more specific here
 
 class VanillaBackprop():
@@ -324,8 +326,8 @@ class BasicBuffer:
       self.max_size = max_size
       self.buffer = deque(maxlen=max_size)
 
-  def push(self, state, action, reward, next_state, done):
-      experience = (state, action, np.array([reward]), next_state, done)
+  def push(self, state, hidden, action, reward, next_hidden, next_state, done):
+      experience = (state, hidden, action, np.array([reward]), next_hidden, next_state, done)
       self.buffer.append(experience)
 
   def sample(self, batch_size):
@@ -334,20 +336,25 @@ class BasicBuffer:
       reward_batch = []
       next_state_batch = []
       done_batch = []
+      hidden_batch = []
+      next_hidden_batch = []
 
       batch = random.sample(self.buffer, batch_size)
 
       for experience in batch:
-          state, action, reward, next_state, done = experience
+          state, hidden, action, reward, next_hidden, next_state, done = experience
           state_batch.append(state)
           action_batch.append(action)
           reward_batch.append(reward)
           next_state_batch.append(next_state)
           done_batch.append(done)
+          hidden_batch.append(hidden)
+          next_hidden_batch.append(next_hidden)
+
 
       #import pudb; pudb.set_trace()
 
-      return (state_batch, action_batch, reward_batch, next_state_batch, done_batch)
+      return (state_batch, hidden_batch, action_batch, reward_batch, next_hidden_batch, next_state_batch, done_batch)
 
   def __len__(self):
       return len(self.buffer)
@@ -634,18 +641,18 @@ class SAC():
     if(len(obs_size) == 1):
         self.obs_state = obs_size[0]
         self.obs_state_size = obs_size[0]
-        self.actor = ActorSimple(self.obs_state, self.num_actions).to(device)
+        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
     else:
         self.obs_state = obs_size
         self.obs_state_size =  obs_size[0][0] * obs_size[0][1] * obs_size[1]
-        self.actor = Actor(self.obs_state, self.num_actions).to(device)
+        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(self.obs_state, self.num_actions).to(device)
 
 
-    self.critic1 = SQNet(self.obs_state, self.num_actions).to(device)
-    self.critic2 = SQNet(self.obs_state, self.num_actions).to(device)
+    self.critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
+    self.critic2 = ResNetRLGRUCritic(3, 2, 12).to(device)
 
-    self.targ_critic1 = SQNet(self.obs_state, self.num_actions).to(device)
-    self.targ_critic2 = SQNet(self.obs_state, self.num_actions).to(device)
+    self.targ_critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
+    self.targ_critic2 = ResNetRLGRUCritic(3, 2, 12).to(device)
 
     self.targ_critic1.load_state_dict(self.critic1.state_dict())
     self.targ_critic2.load_state_dict(self.critic2.state_dict())
@@ -689,7 +696,7 @@ class SAC():
 
   def sample(self, obs):
 
-    mean, log_std = self.actor.forward(obs)
+    mean, log_std, hidden = self.actor.forward(obs)
 
     log_std = torch.tanh(log_std)
     log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
@@ -712,13 +719,13 @@ class SAC():
 
     mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
 
-    return action, log_prob, mean, std
+    return action, log_prob, mean, std, hidden
 
 
   def prob_action(self, obs, action_to_calc):
     # returns probability given policy -> π(action|obs)
 
-    mean, log_std = self.actor.forward(obs)
+    mean, log_std, _ = self.actor.forward(obs)
 
     log_std = torch.tanh(log_std)
     log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
@@ -788,14 +795,17 @@ class SAC():
 
         with torch.autograd.set_detect_anomaly(True):
 
-            mem_state_batch, mem_action_batch, mem_reward_batch, mem_next_state_batch, mem_mask_batch = memory.sample(batch_size)
+            mem_state_batch, mem_first_hidden_batch, mem_action_batch, mem_reward_batch, mem_next_hidden_batch, mem_next_state_batch, mem_mask_batch = memory.sample(batch_size)
 
             mem_states_obs_batch, mem_states_aug_batch = zip(*mem_state_batch)
             mem_next_states_obs_batch, mem_next_states_aug_batch = zip(*mem_next_state_batch)
 
+            first_hidden_batch = torch.stack(mem_first_hidden_batch).to(self.device).squeeze(1)
+
             state_obs_batch = torch.stack(mem_states_obs_batch).to(self.device).squeeze(1)
             state_aug_batch = torch.stack(mem_states_aug_batch).to(self.device).squeeze(1)
 
+            next_mem_batch = torch.stack(mem_next_hidden_batch).to(self.device).squeeze(1)
             next_next_state_obs_batch = torch.stack(mem_next_states_obs_batch).to(self.device).squeeze(1)
             next_next_state_aug_batch = torch.stack(mem_next_states_aug_batch).to(self.device).squeeze(1)
             #action_batch = torch.FloatTensor(np.stack(mem_action_batch)).to(self.device)
@@ -810,20 +820,20 @@ class SAC():
             #st = (state_obs_batch, state_aug_batch)
 
             with torch.no_grad():
-
-                next_state_action, next_state_log_pi, _, _ = self.sample((next_next_state_obs_batch, next_next_state_aug_batch))
-                qf1_next_target, qf2_next_target = self.critic_target((next_next_state_obs_batch, next_next_state_aug_batch), next_state_action)
+                #import pudb; pudb.set_trace()
+                next_state_action, next_state_log_pi, _, _, next_hidden= self.sample((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch))
+                qf1_next_target, qf2_next_target = self.critic_target((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch), next_state_action)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
                 next_q_value = reward_batch + mask_batch * gamma * (min_qf_next_target)
             
                 is_cs = 1
 
                 if(expert_data):
-                    prob_beh = self.prob_action((state_obs_batch, state_aug_batch), action_batch) + self.hyperps['epsilon']
+                    prob_beh = self.prob_action((state_obs_batch, state_aug_batch, first_hidden_batch.detach()), action_batch) + self.hyperps['epsilon']
                     prob_expert = torch.ones_like(prob_beh) * 0.90 # Assume expert is almost confident on what it did
                     is_cs = torch.min(torch.ones_like(prob_expert)*1.5, prob_expert/prob_beh)
 
-            qf1, qf2 = self.critic((state_obs_batch.detach(), state_aug_batch.detach()), action_batch.detach())  # Two Q-functions to mitigate positive bias in the policy improvement step
+            qf1, qf2 = self.critic((state_obs_batch.detach(), state_aug_batch.detach(), first_hidden_batch.detach()), action_batch.detach())  # Two Q-functions to mitigate positive bias in the policy improvement step
             qf1_loss = F.mse_loss(qf1, next_q_value * is_cs)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
             qf2_loss = F.mse_loss(qf2, next_q_value * is_cs)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
             qf_loss = qf1_loss + qf2_loss 
@@ -834,9 +844,9 @@ class SAC():
             qf_loss.backward()
             self.critic_optim.step()
 
-            pi, log_pi, _, _ = self.sample((state_obs_batch, state_aug_batch))
+            pi, log_pi, _, _, _ = self.sample((state_obs_batch, state_aug_batch, first_hidden_batch))
 
-            qf1_pi, qf2_pi = self.critic((state_obs_batch, state_aug_batch), pi)
+            qf1_pi, qf2_pi = self.critic((state_obs_batch, state_aug_batch, first_hidden_batch), pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
 
@@ -863,11 +873,6 @@ class SAC():
 
             
             return qf1_loss.item(), qf2_loss.item(), policy_loss.item(), alpha_loss.item(), alpha_tlogs.item()
-
-
-
-
-
 
 
 
@@ -957,6 +962,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     system_of_eqs = []
 
+    old_hidden = torch.zeros(1, 256).to(device)
+
     for epi in range(hyperps['max_epochs']):
         obs = env.reset()
 
@@ -975,9 +982,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             sac_agent.eval()
 
-            action, log_prob, mean, std = sac_agent.sample(old_obs) 
+            action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
 
-            all_q_vals.append(min(sac_agent.critic(old_obs, action)).cpu().item())
+            all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
 
@@ -1009,14 +1016,15 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
 
 
-            if(total_steps >= 6500):
-                memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), action, reward, (obs[0].to("cpu"), obs[1].to("cpu")), done)
+            #if(total_steps >= 6500):
+            memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action, reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
             if(total_steps % 800 > 700):
                 get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
                 metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
                 
             old_obs = obs
+            old_hidden = hidden
 
             total_steps += 1
             log_reward.append(reward)
@@ -1061,9 +1069,10 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             to_train_mem = memory
             expert_data = False
-            if(total_steps < 6500):
-                to_train_mem = expert_memory
-                expert_data = True
+            
+            #if(total_steps < 6500):
+            #    to_train_mem = expert_memory
+            #    expert_data = True
 
 
             done |= total_steps == hyperps['max_steps']
