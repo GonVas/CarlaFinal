@@ -36,6 +36,16 @@ from PIL import Image, ImageDraw
 import wandb
 
 
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import torchvision
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import datasets, transforms
+
+
 from architectures import ResNetRLGRU, ResNetRLGRUCritic
 
 # default `log_dir` is "runs" - we'll be more specific here
@@ -411,222 +421,6 @@ class LoadBuffer:
 
 
 
-
-class SQNet(nn.Module):
-    
-    def __init__(self, num_inputs, num_actions, hidden_size=512, conv_channels=6, kernel_size=3, size_1=32, size_2=64, size_3=32):
-        super(SQNet, self).__init__()
-
-        #self.num_inputs = num_inputs
-        
-        self.state_size, channels_in = num_inputs
-        self.num_actions = num_actions
-
-
-        self.conv1 = nn.Conv2d(channels_in, conv_channels, kernel_size, stride=1)
-
-        self.size_now = self.conv_output_shape(self.state_size) 
-
-        self.pool1 = nn.MaxPool2d(2, 2)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.conv2 = nn.Conv2d(conv_channels, conv_channels*2, kernel_size)
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-        self.pool2 = nn.MaxPool2d(2, 2)
-
-
-        self.conv3 = nn.Conv2d(conv_channels*2, conv_channels*2, kernel_size)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-
-        self.pool3 = nn.MaxPool2d(2, 2)
-
-
-        self.size_now = int(self.size_now[0]/2) * int(self.size_now[1]/2) * conv_channels*2
-
-
-        #import pudb; pudb.set_trace()
-
-        #self.l1 = nn.Linear(num_inputs + num_actions, hidden_size)
-        self.l1 = nn.Linear(self.size_now + num_actions + 12, hidden_size)
-        self.l2 = nn.Linear(hidden_size, int(hidden_size/2))
-        self.l3 = nn.Linear(int(hidden_size/2), int(hidden_size/16))
-        self.l4 = nn.Linear(int(hidden_size/16), 1)
-
-
-    def forward(self, state, action):
-
-        x, aditional = state
-
-        aditional_flat = aditional.reshape(-1, 12)
-        
-        
-        x = self.pool1(F.relu(self.conv1(x)))
-
-        x = self.pool2(F.relu(self.conv2(x)))
-
-        x = self.pool3(F.relu(self.conv3(x)))
-
-
-        x = x.reshape(-1, self.size_now)
-
-
-        x = torch.cat([x.reshape(-1, self.size_now), action.view(-1, self.num_actions)], 1)
-
-        x_aug = torch.cat((x, aditional_flat), dim=1)
-
-        x_aug = F.relu(self.l1(x_aug))
-        x_aug = F.relu(self.l2(x_aug))
-        x_aug = F.relu(self.l3(x_aug))
-
-        x_aug = self.l4(x_aug)
-        return x_aug
-
-
-    def conv_output_shape(self, h_w, kernel_size=3, stride=1, pad=0, dilation=1):
-        
-        #Utility function for computing output of convolutions
-        #takes a tuple of (h,w) and returns a tuple of (h,w)
-                
-        if type(h_w) is not tuple:
-            h_w = (h_w, h_w)
-        
-        if type(kernel_size) is not tuple:
-            kernel_size = (kernel_size, kernel_size)
-        
-        if type(stride) is not tuple:
-            stride = (stride, stride)
-        
-        if type(pad) is not tuple:
-            pad = (pad, pad)
-        
-        h = (h_w[0] + (2 * pad[0]) - (dilation * (kernel_size[0] - 1)) - 1)// stride[0] + 1
-        w = (h_w[1] + (2 * pad[1]) - (dilation * (kernel_size[1] - 1)) - 1)// stride[1] + 1
-        
-        return h, w
-
-
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_size, action_size, conv_channels=6, kernel_size=3, size_1=1024, size_2=512, size_3=256):
-        super(Actor, self).__init__()
-
-        self.state_size, channels_in = state_size
-        self.action_size = action_size
-
-
-        self.conv1 = nn.Conv2d(channels_in, conv_channels, kernel_size, stride=1)
-
-        self.size_now = self.conv_output_shape(self.state_size) 
-
-        self.conv1_bn = nn.BatchNorm2d(conv_channels)
-
-        self.pool1 = nn.MaxPool2d(2, 2)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.conv2 = nn.Conv2d(conv_channels, conv_channels*2, kernel_size)
-
-        self.conv2_bn = nn.BatchNorm2d(conv_channels*2)
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-        self.pool2 = nn.MaxPool2d(2, 2)
-
-
-        self.conv3 = nn.Conv2d(conv_channels*2, conv_channels*2, kernel_size)
-
-        self.conv3_bn = nn.BatchNorm2d(conv_channels*2)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-
-        self.pool3 = nn.MaxPool2d(2, 2)
-
-
-        self.size_now = int(self.size_now[0]/2) * int(self.size_now[1]/2) * conv_channels*2
-
-        self.fc1 = nn.Linear(self.size_now+12, size_1)
-
-        self.bn_fc1 = nn.BatchNorm1d(size_1)
-
-        self.fc2 = nn.Linear(size_1, size_2)
-
-        self.bn_fc2 = nn.BatchNorm1d(size_2)
-
-        self.fc3 = nn.Linear(size_2, size_3)
-
-        self.bn_fc3 = nn.BatchNorm1d(size_3)
-
-        self.mu = nn.Linear(size_3, action_size)
-
-        self.log_std = nn.Linear(size_3, action_size)
-
-
-    def forward(self, state):
-
-        x, aditional = state
-
-        aditional_flat = aditional.reshape(-1, 12)
-
-        x = self.pool1(F.relu(self.conv1_bn(self.conv1(x))))
-
-        x = self.pool2(F.relu(self.conv2_bn(self.conv2(x))))
-
-        x = self.pool3(F.relu(self.conv3_bn(self.conv3(x))))
-
-
-        x = x.reshape(-1, self.size_now)
-
-        x_aug = torch.cat((x, aditional_flat), dim=1)
-
-        #import pudb; pudb.set_trace()
-        x_aug = F.relu(self.bn_fc1(self.fc1(x_aug)))
-        x_aug = F.relu(self.bn_fc2(self.fc2(x_aug)))
-
-        x_aug = F.relu(self.bn_fc3(self.fc3(x_aug)))
-
-        mu = self.mu(x_aug)
-
-        log_std = self.log_std(x_aug)
-
-        return mu, log_std
-
-
-    def conv_output_shape(self, h_w, kernel_size=3, stride=1, pad=0, dilation=1):
-        
-        #Utility function for computing output of convolutions
-        #takes a tuple of (h,w) and returns a tuple of (h,w)
-                
-        if type(h_w) is not tuple:
-            h_w = (h_w, h_w)
-        
-        if type(kernel_size) is not tuple:
-            kernel_size = (kernel_size, kernel_size)
-        
-        if type(stride) is not tuple:
-            stride = (stride, stride)
-        
-        if type(pad) is not tuple:
-            pad = (pad, pad)
-        
-        h = (h_w[0] + (2 * pad[0]) - (dilation * (kernel_size[0] - 1)) - 1)// stride[0] + 1
-        w = (h_w[1] + (2 * pad[1]) - (dilation * (kernel_size[1] - 1)) - 1)// stride[1] + 1
-        
-        return h, w
-
-
-
 class SAC():
 
   def __init__(self, env, obs_size, num_actions, hyperps, device, train=True):
@@ -912,16 +706,13 @@ def get_saliency(obs, model, action, std, device):
     cv2.waitKey(1)
 
 
-import os
-#os.environ["WANDB_MODE"] = "dryrun"
-
 def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./'):
 
     #memory = BasicBuffer(hyperps['maxmem'])
 
-    wandb.init(config=hyperps)
+    wandb.init(config=hyperps, force=True)
 
-    #wandb.init(project="offline-demo")
+    #wandb.init()
 
     memory = BasicBuffer(30)
 
@@ -1019,9 +810,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             #if(total_steps >= 6500):
             memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action, reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
-            if(total_steps % 800 > 700):
-                get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
-                metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
+            #if(total_steps % 800 > 700):
+            #    get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
+            #    metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
                 
             old_obs = obs
             old_hidden = hidden
@@ -1090,7 +881,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 #print('Updated Neural Nets. Losses: critic1:{:.4f}, critic2:{:.4f}, policy_loss:{:.4f}, entropy_loss: {:.4f}, alpha:{:.4f}.'.format(critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha))
             
 
-            if(total_steps != 0 and total_steps % 500 == 0):
+            if(total_steps != 0 and total_steps % 50 == 0):
                 print('Saving')
                 torch.save({
                         'steps': total_steps,
@@ -1142,7 +933,6 @@ def only_train(env, obs_state, num_actions, hyperps, device=torch.device("cpu"),
 
     wandb.init(config=hyperps)
 
-    #wandb.init(project="offline-demo")
 
     expert_memory = LoadBuffer('./human_samples/')
 
@@ -1236,14 +1026,6 @@ def only_train(env, obs_state, num_actions, hyperps, device=torch.device("cpu"),
 
 
 
-from torch.utils.data.dataset import Dataset
-
-
-import torchvision
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms
-
-
 
 class PolicyDataset(Dataset):
     def __init__(self, filelist, batch_size, device):
@@ -1315,14 +1097,11 @@ class CriticDataset(Dataset):
 
 
 
-
 def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
 
     #memory = BasicBuffer(hyperps['maxmem'])
 
     wandb.init(config=hyperps)
-
-    #wandb.init(project="offline-demo")
 
     print('Batch size: {}'.format(hyperps['batch_size']))
 
@@ -1440,3 +1219,9 @@ def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("
 
     return sac_agent
 
+
+
+
+def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
+
+    

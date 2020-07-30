@@ -75,6 +75,8 @@ RUN pip install --user networkx
 
 RUN pip install --user wandb
 
+RUN pip install --user torchvision
+
 RUN pip install --user matplotlib
 
 
@@ -87,6 +89,7 @@ USER carla
 
 WORKDIR /home/carla
 
+
 COPY . /home/carla/
 
 USER root
@@ -97,4 +100,4 @@ RUN pip install --user tensorboard torchviz pandas
 
 RUN /home/carla/.local/bin/wandb login 4b3486db7da0dff72366b5e2b6b791ae41ae3b9f
 
-CMD echo "Basic Docker Initialized"
+CMD echo "Basic Docker for Carla RL Initialized"

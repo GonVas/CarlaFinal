@@ -1,17 +1,15 @@
 from gonvas/carlarlbase:latest
 
-USER user
 
-WORKDIR /project/carla
 
 ENV SDL_VIDEODRIVER=offscreen
 
-RUN wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
+#RUN wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
 
-RUN unzip ngrok-stable-linux-amd64.zip
+#RUN unzip ngrok-stable-linux-amd64.zip
 #ENV NGROK_ARCH=linuxia32
 
-RUN ./ngrok authtoken 3u27yNp6YhhuzGbmxbek3_4tKxDvAciFGRVZFEZ3rSa
+#RUN ./ngrok authtoken 3u27yNp6YhhuzGbmxbek3_4tKxDvAciFGRVZFEZ3rSa
 
 
 #COPY ngrok_config.yml .
@@ -19,13 +17,39 @@ RUN ./ngrok authtoken 3u27yNp6YhhuzGbmxbek3_4tKxDvAciFGRVZFEZ3rSa
 
 #RUN ./ngrok http 8080
 
+#COPY . /home/carla/
 
+#COPY . /project/carla
+
+#MKDIR /project/carla
+
+#RUN chown -R carla:carla /project/carla
+
+#RUN chown -R carla:carla /home/carla
+
+
+USER carla
+WORKDIR /home/carla
 COPY . /project/carla
 
-RUN sudo chown -R user:user /project/carla
+RUN rm -r wandb
+
+#WORKDIR /project/carla
 
 #CMD /bin/bash
 
 #CMD python3 -m http.server 8080 & sh ./CarlaUE4.sh & sleep 15 && python3 trainvae.py --production > py_output.txt & ./ngrok http 8080
 
 #CMD /bin/bash train_vae.sh
+
+COPY sac_simple_channel.py .
+COPY main.py .
+COPY architectures.py .
+
+ENV WANDB_API_KEY 4b3486db7da0dff72366b5e2b6b791ae41ae3b9f
+ENV WANDB_ENTITY gonvas
+ENV WANDB_PROJECT carlaFinal
+
+RUN /home/carla/.local/bin/wandb on
+
+CMD ./CarlaUE4.sh & sleep 15 && python3 main.py --production

@@ -20,6 +20,7 @@ import CarlaGymEnv
 import sac_simple_channel 
 import rl_human
 import model_tester
+#import sac_complete
 #from algos import sac, random_agent, DQN_carla, policy_grads, reinforce, sac_mem, sac_a3c_dist, a3c, data_gatherer
 #from algos.models.cnn_vae import VAE, load_last_model, vae_train
 
@@ -187,8 +188,8 @@ def run():
 
 
     if(args.production):
-        args.batch_size = 1024
-        args.epochs = 2000 if args.epochs == 0 else args.epochs 
+        args.batch_size = 16
+        args.epochs = 1000 if args.epochs == 0 else args.epochs 
         args.maxram = 13
     else:
         args.batch_size = 2
@@ -243,8 +244,12 @@ def run():
     hyperps['maxmem'] = 2000000
 
  
+    os.environ['WANDB_MODE'] = 'run'
+    os.environ['WANDB_API_KEY'] = "4b3486db7da0dff72366b5e2b6b791ae41ae3b9f"
+
+
     env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
-    final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps)
+    final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device)
     #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
