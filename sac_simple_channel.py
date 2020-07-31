@@ -712,9 +712,11 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     wandb.init(config=hyperps, force=True)
 
-    #wandb.init()
+    #wandb.init()   
 
-    memory = BasicBuffer(30)
+    mem_max_size = hyperps['maxram']*6
+
+    memory = BasicBuffer(hyperps['maxram']*6)
 
     expert_memory = LoadBuffer('./human_samples/')
 
@@ -869,9 +871,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             done |= total_steps == hyperps['max_steps']
 
 
-            if len(to_train_mem) > hyperps['batch_size']:
+            if len(to_train_mem) > hyperps['batch_size'] and len(memory) > mem_max_size - 5:
                 sac_agent.train()
-                print('Going to train')
+                print('Going to train, len of mem: {}'.format(len(memory)))
 
                 critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, expert_data)
                 

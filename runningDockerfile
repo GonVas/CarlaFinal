@@ -45,6 +45,7 @@ RUN rm -r wandb
 COPY sac_simple_channel.py .
 COPY main.py .
 COPY architectures.py .
+COPY CarlaGymEnv.py .
 
 ENV WANDB_API_KEY 4b3486db7da0dff72366b5e2b6b791ae41ae3b9f
 ENV WANDB_ENTITY gonvas
