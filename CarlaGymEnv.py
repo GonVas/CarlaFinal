@@ -2212,7 +2212,7 @@ class CarEnv:
 
         return reward, done
 
-    def calculate_reward(self, vel_w=0.1, junc_w=0.3, time_w=-0.07, distance_w=0.8, collision_w=2, lane_w=2, lights_w=2, lights_thres=1000, debug=False):
+    def calculate_reward(self, waypoint_w=0.5, vel_w=0.1, junc_w=0.3, time_w=-0.07, distance_w=0.8, collision_w=2, lane_w=2, lights_w=2, lights_thres=1000, debug=False):
 
         # All rewards should try be -1 to 1.
         
@@ -2266,10 +2266,13 @@ class CarEnv:
             return bench_rew, True, {'scen_sucess':1, 'scen_metric':bench_rew}
 
 
-        reward += self.calc_waypoints_reward()
+        way_reward = self.calc_waypoints_reward()
+        reward += waypoint_w * way_reward
+        dist_l_reward.append(way_reward)
+
 
         if(debug):
-            print("Vel_r : {:2.2f}, Time_r : {:2.2f}, Dis_r : {:2.2f}, Col_r : {:2.2f}, Lan_r : {:2.2f}".format(vel_reward, t_reward, d_reward, col_reward, lane_reward))
+            print("CARLAGYM Vel_r : {:2.2f}, Time_r : {:2.2f}, Dis_r : {:2.2f}, Col_r : {:2.2f}, Lan_r : {:2.2f}, Waypoint_r: {:2.2f}".format(vel_reward, t_reward, d_reward, col_reward, lane_reward, way_reward))
 
 
         if(self.sparse):

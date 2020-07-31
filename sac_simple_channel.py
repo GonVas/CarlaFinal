@@ -35,7 +35,7 @@ from PIL import Image, ImageDraw
 
 import wandb
 
-
+import random
 
 
 from torch.utils.data.dataset import Dataset
@@ -746,9 +746,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     to_plot = []
 
     #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
-    w_vel, w_t, w_dis, w_col, w_lan = 0.5, 1, 5, 1, 1
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 5, 1, 1, 2
 
-    rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan]
+    rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
     change_rate = 0.1
 
     system_of_eqs = []
@@ -781,11 +781,11 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             all_rewards.append(reward)
 
-            print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4]))
+            print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}, waypoint: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4], w_waypoint*reward[5]))
             
-            wandb.log({'reward_vel':w_vel*reward[0], 'reward_time':w_t*reward[1], 'reward_dist':w_dis*reward[2], 'reward_col':w_col*reward[3], 'reward_lane':w_lan*reward[4]})
+            wandb.log({'reward_vel':w_vel*reward[0], 'reward_time':w_t*reward[1], 'reward_dist':w_dis*reward[2], 'reward_col':w_col*reward[3], 'reward_lane':w_lan*reward[4], 'reward_waypoint':w_waypoint*reward[5]})
 
-            reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4])/5
+            reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4] + w_waypoint*reward[5])/6
 
 
             print('Final Sum Reward: {:.5f}'.format(reward))
@@ -1224,4 +1224,275 @@ def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("
 
 def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
 
+
+    wandb.init(config=hyperps)
+
+    print('Batch size: {}'.format(hyperps['batch_size']))
+
+    batch_size = hyperps['batch_size']
     
+    sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
+
+    wandb.watch(sac_agent.actor)
+    wandb.watch(sac_agent.critic1)
+    wandb.watch(sac_agent.critic2)
+
+    wall_start = time.time()
+
+    total_steps = 0
+    updates = 0
+
+    critic_net = sac_agent.critic1
+    policy_net = sac_agent.actor
+
+
+    files = glob.glob('./human_samples/' + '*.npz')
+
+    files_train, files_val, files_unseen = files[0:int(len(files)*0.7)], files[int(len(files)*0.7):int(len(files)*0.9)], files[int(len(files)*0.9):len(files)]
+
+
+    policy_dataset = PolicyDataset(files_train, batch_size, device)
+
+    critic_dataset = CriticDataset(files_train, batch_size, device)
+
+    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=batch_size, num_workers=4)
+
+    epochs = 2
+
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
+
+    for epoch in range(epochs):
+
+        train_loss = 0
+
+        old_hidden = torch.zeros(hyperps['batch_size'], 256).to(device)
+
+        for batch_idx, data in enumerate(train_loader):
+
+            data_img, data_img_aug = data[0][0]
+            data_img = data_img.squeeze(1)
+
+            data_action = data[1][0]
+
+            optimizer.zero_grad()
+
+            #import pudb; pudb.set_trace()
+
+            mean, log_std, hidden = policy_net((data_img.to(device), data_img_aug.to(device), old_hidden))
+            
+            log_std = torch.tanh(log_std)
+            log_std = hyperps['log_std_min'] + 0.5 * (hyperps['log_std_max'] - hyperps['log_std_min']) * (log_std + 1)
+
+            std = log_std.exp()
+            normal = Normal(mean, std)
+    
+            x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+            y_t = torch.tanh(x_t)
+
+            pol_action = y_t * hyperps['action_scale'] + hyperps['action_bias']
+
+            loss = criterion(pol_action, data_action.to(device))
+            loss.backward()
+            train_loss += loss.item()
+            optimizer.step()
+
+            old_hidden = hidden #hidden.detach()
+
+            if(batch_idx != 0 and batch_idx % log_step == 0):
+                print('Epoch: {}, Train Loss: {}, this batch_loss : {}'.format(epoch, train_loss, loss.item()))
+
+
+        if(epoch != 0 and epoch % 50 == 0):
+            print('Saving')
+            torch.save({
+                'steps': total_steps,
+                'model_state_dict': sac_agent.actor.state_dict(),
+                }, save_dir+'sac_model_{}_bl.tar'.format(total_steps))
+
+            wandb.save(save_dir+'sac_model_{}_bl.tar'.format(total_steps))
+
+
+
+    wandb.save(save_dir+'bc_final_sac_model.tar')
+
+    memory = BasicBuffer(30)
+
+    expert_memory = LoadBuffer('./human_samples/')
+
+    wall_start = time.time()
+
+    total_steps = 0
+    updates = 0
+
+    log_reward = []
+    
+    all_actions = []
+    all_pol_stats = []
+    all_stds = []
+    all_means = []
+
+    all_rewards = []
+    all_scenario_wins_rewards = []
+    all_final_rewards = []
+    all_q_vals = []
+
+    to_plot = []
+
+    #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 5, 1, 1, 2
+
+    rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
+    change_rate = 0.1
+
+    system_of_eqs = []
+
+    old_hidden = torch.zeros(1, 256).to(device)
+
+    for epi in range(hyperps['max_epochs']):
+        obs = env.reset()
+
+        print('Len of memory buffer: {}'.format(len(memory)))
+        
+        old_obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
+        #obs_t = torch.Tensor(obs).unsqueeze(0).transpose(1, 3).transpose(2, 3).float()
+        
+        total_steps += 1
+
+        print('Epoch: {}, Max Epochs: {}'.format(epi, hyperps['max_epochs']))
+ 
+
+        for step_numb in range(hyperps['max_steps']):
+
+
+            sac_agent.eval()
+
+            action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+
+            all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
+
+            obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
+
+            all_rewards.append(reward)
+
+            print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}, waypoint: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4], w_waypoint*reward[5]))
+            
+            wandb.log({'reward_vel':w_vel*reward[0], 'reward_time':w_t*reward[1], 'reward_dist':w_dis*reward[2], 'reward_col':w_col*reward[3], 'reward_lane':w_lan*reward[4], 'reward_waypoint':w_waypoint*reward[5]})
+
+            reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4] + w_waypoint*reward[5])/6
+
+
+            print('Final Sum Reward: {:.5f}'.format(reward))
+
+            all_final_rewards.append(reward)
+
+            wandb.log({"final_r": reward, 'action':action.cpu(), 'log_prob':log_prob.cpu(), 'mean':mean.cpu(), 'std':std.cpu()})
+
+            if(info != None):
+                print(info)
+           
+            all_pol_stats.append([action.cpu().detach().numpy()[0][0], action.cpu().detach().numpy()[0][1], (log_prob[0]).item(), torch.clamp(torch.exp(log_prob[0]), 0, 1.0).item()])
+            all_means.append([mean.cpu().detach().numpy()[0][0], mean.cpu().detach().numpy()[0][1]])
+            all_stds.append([std.cpu().detach().numpy()[0][0], std.cpu().detach().numpy()[0][1]])
+
+            obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
+
+
+            #if(total_steps >= 6500):
+            memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action, reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
+
+            #if(total_steps % 800 > 700):
+            #    get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
+            #    metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
+                
+            old_obs = obs
+            old_hidden = hidden
+
+            total_steps += 1
+            log_reward.append(reward)
+
+            if done:
+                print('In SAC Done: {}'.format(len(memory)))
+
+                if(info['scen_sucess'] != None and info['scen_sucess'] == 1):
+                    all_scenario_wins_rewards.append(1)
+                    wandb.log({"all_scenario_wins_rewards": all_scenario_wins_rewards})
+                    to_plot.append([total_steps, info['scen_sucess']*0.999])
+
+                elif (info['scen_sucess'] != None and info['scen_sucess'] == -1):
+                    all_scenario_wins_rewards.append(-1)
+                    wandb.log({"all_scenario_wins_rewards": all_scenario_wins_rewards})
+                #{'scen_sucess':1, 'scen_metric':bench_rew}
+
+
+                break
+
+            #print('Len of Memory: {}, Batch Size: {}'.format(len(memory), hyperps['batch_size']))
+
+            to_train_mem = memory
+            expert_data = False
+            
+            if(total_steps < 10000 and rand.random() < 0.3):
+                to_train_mem = expert_memory
+                expert_data = True
+
+
+            if len(to_train_mem) > hyperps['batch_size']:
+                sac_agent.train()
+                print('Going to train')
+
+                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, expert_data)
+                
+                wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
+
+                updates += 1
+                #print('Updated Neural Nets. Losses: critic1:{:.4f}, critic2:{:.4f}, policy_loss:{:.4f}, entropy_loss: {:.4f}, alpha:{:.4f}.'.format(critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha))
+            
+
+            if(total_steps != 0 and total_steps % 50 == 0):
+                print('Saving')
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.actor.state_dict(),
+                        }, save_dir+'sac_model_{}.tar'.format(total_steps))
+
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.critic1.state_dict(),
+                        }, save_dir+'sac_c1_model_{}.tar'.format(total_steps))
+
+                torch.save({
+                        'steps': total_steps,
+                        'model_state_dict': sac_agent.critic2.state_dict(),
+                        }, save_dir+'sac_c2_model_{}.tar'.format(total_steps))
+
+                wandb.save(save_dir+'sac_model_{}.tar'.format(total_steps))
+                wandb.save(save_dir+'sac_c1_model_{}.tar'.format(total_steps))
+                wandb.save(save_dir+'sac_c2_model_{}.tar'.format(total_steps))
+    
+
+
+            done |= total_steps == hyperps['max_steps']
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.actor.state_dict(),
+            }, save_dir+'final_sac_model.tar')
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.critic1.state_dict(),
+            }, save_dir+'final_sac_c1_model.tar')
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.critic2.state_dict(),
+            }, save_dir+'final_sac_c2_model.tar')
+
+    wandb.save(save_dir+'final_sac_model.tar')
+    wandb.save(save_dir+'final_sac_c1_model.tar')
+    wandb.save(save_dir+'final_sac_c2_model.tar')
+
+
+
+    return sac_agent

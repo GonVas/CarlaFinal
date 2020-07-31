@@ -195,6 +195,7 @@ def run():
         args.batch_size = 2
         args.epochs = 100 if args.epochs == 0  else args.epochs 
         args.maxram = 7
+        args.no_cuda = True
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -238,8 +239,8 @@ def run():
     hyperps['betas'] = (0.9, 0.999)
 
 
-    hyperps['log_std_max'] = 1
-    hyperps['log_std_min'] = 0
+    hyperps['log_std_max'] = 0.5
+    hyperps['log_std_min'] = 0.01
     hyperps['epsilon'] = 1e-6
     hyperps['maxmem'] = 2000000
 
@@ -249,9 +250,9 @@ def run():
 
 
     env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
-    final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device)
+    #final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device)
     #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
-    #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
+    final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
     final_pol = 'pol_model_final.tar'
     final_q1 = 'q1_model_final.tar'

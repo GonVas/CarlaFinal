@@ -663,7 +663,7 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
     env.reset()
     human_agent = HumanAgent(env, obs_state, num_actions, hyperps, device)
 
-    save_dir = '/run/media/gonvas/WDGreenHDD/carla/human_samples/'
+    save_dir = './human_samples/'
 
     wall_start = time.time()
 
@@ -685,9 +685,9 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
     to_plot = []
 
     #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
-    w_vel, w_t, w_dis, w_col, w_lan = 0.5, 1, 5, 1, 1
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 5, 1, 1, 2
 
-    rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan]
+    rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
     change_rate = 0.1
 
     system_of_eqs = []
@@ -720,6 +720,16 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
             #reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4])/5
         
             #print('Final Sum Reward: {:.5f}'.format(reward))
+
+
+
+            print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}, waypoint: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4], w_waypoint*reward[5]))
+            
+            #wandb.log({'reward_vel':w_vel*reward[0], 'reward_time':w_t*reward[1], 'reward_dist':w_dis*reward[2], 'reward_col':w_col*reward[3], 'reward_lane':w_lan*reward[4], 'reward_waypoint':w_waypoint*reward[5]})
+
+            #reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4] + w_waypoint*reward[5])/6
+
+
 
             all_final_rewards.append(reward)
 

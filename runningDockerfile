@@ -30,7 +30,7 @@ ENV SDL_VIDEODRIVER=offscreen
 
 USER carla
 WORKDIR /home/carla
-COPY . /project/carla
+#COPY . /project/carla
 
 RUN rm -r wandb
 
