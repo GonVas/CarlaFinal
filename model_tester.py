@@ -34,7 +34,7 @@ import cv2
 from PIL import Image, ImageDraw
 
 import wandb
-
+from architectures import ResNetRLGRU, ResNetRLGRUCritic
 
 # default `log_dir` 
 
@@ -271,18 +271,19 @@ class SAC():
     if(len(obs_size) == 1):
         self.obs_state = obs_size[0]
         self.obs_state_size = obs_size[0]
-        self.actor = ActorSimple(self.obs_state, self.num_actions).to(device)
+        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
     else:
         self.obs_state = obs_size
         self.obs_state_size =  obs_size[0][0] * obs_size[0][1] * obs_size[1]
-        self.actor = Actor(self.obs_state, self.num_actions).to(device)
+        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(self.obs_state, self.num_actions).to(device)
 
 
-    self.critic1 = SQNet(self.obs_state, self.num_actions).to(device)
-    self.critic2 = SQNet(self.obs_state, self.num_actions).to(device)
+    self.critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
+    self.critic2 = ResNetRLGRUCritic(3, 2, 12).to(device)
 
-    self.targ_critic1 = SQNet(self.obs_state, self.num_actions).to(device)
-    self.targ_critic2 = SQNet(self.obs_state, self.num_actions).to(device)
+    self.targ_critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
+    self.targ_critic2 = ResNetRLGRUCritic(3, 2, 12).to(device)
+
 
     self.targ_critic1.load_state_dict(self.critic1.state_dict())
     self.targ_critic2.load_state_dict(self.critic2.state_dict())
@@ -326,7 +327,7 @@ class SAC():
 
   def sample(self, obs):
 
-    mean, log_std = self.actor.forward(obs)
+    mean, log_std, hidden = self.actor.forward(obs)
 
     log_std = torch.tanh(log_std)
     log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
@@ -349,7 +350,7 @@ class SAC():
 
     mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
 
-    return action, log_prob, mean, std
+    return action, log_prob, mean, std, hidden
 
 
   def load_models(self, files):
@@ -596,7 +597,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     #import pudb; pudb.set_trace()
     
     #load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
-    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_1000.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_1000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_1000.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_74000.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_74000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_74000.tar']
 
     sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
 
@@ -626,12 +627,15 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     to_plot = []
 
     #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
-    w_vel, w_t, w_dis, w_col, w_lan = 0.5, 1, 5, 1, 1
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 5, 1, 1, 2
 
-    rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan]
+    rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
     change_rate = 0.1
 
     system_of_eqs = []
+
+    old_hidden = torch.zeros(1, 256).to(device)
+
 
     for epi in range(hyperps['max_epochs']):
         obs = env.reset()
@@ -646,21 +650,24 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             sac_agent.eval()
 
-            action, log_prob, mean, std = sac_agent.sample(old_obs) 
+            action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
 
-            all_q_vals.append(min(sac_agent.critic(old_obs, action)).cpu().item())
+            all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
 
             all_rewards.append(reward)
 
-            print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4]))
+            print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}, waypoint: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4], w_waypoint*reward[5]))
             
-            reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4])/5
-        
+            #wandb.log({'reward_vel':w_vel*reward[0], 'reward_time':w_t*reward[1], 'reward_dist':w_dis*reward[2], 'reward_col':w_col*reward[3], 'reward_lane':w_lan*reward[4], 'reward_waypoint':w_waypoint*reward[5]})
+
+            reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4] + w_waypoint*reward[5])/6
+
             print('Final Sum Reward: {:.5f}'.format(reward))
 
             all_final_rewards.append(reward)
+
 
             if(info != None):
                 print(info)
@@ -668,15 +675,19 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             all_pol_stats.append([action.cpu().detach().numpy()[0][0], action.cpu().detach().numpy()[0][1], (log_prob[0]).item(), torch.clamp(torch.exp(log_prob[0]), 0, 1.0).item()])
             all_means.append([mean.cpu().detach().numpy()[0][0], mean.cpu().detach().numpy()[0][1]])
             all_stds.append([std.cpu().detach().numpy()[0][0], std.cpu().detach().numpy()[0][1]])
-
+            
             obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
 
+
+            #if(total_steps >= 6500):
+            #memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action, reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
             #if(total_steps % 800 > 700):
             #    get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
             metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
                 
             old_obs = obs
+            old_hidden = hidden
 
             total_steps += 1
             log_reward.append(reward)

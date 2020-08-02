@@ -190,7 +190,7 @@ def run():
     if(args.production):
         args.batch_size = 16
         args.epochs = 1000 if args.epochs == 0 else args.epochs 
-        args.maxram = 15
+        args.maxram = 16
     else:
         args.batch_size = 2
         args.epochs = 100 if args.epochs == 0  else args.epochs 
@@ -250,8 +250,8 @@ def run():
 
 
     env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
-    final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device)
-    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
+    #final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device)
+    final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
     final_pol = 'pol_model_final.tar'

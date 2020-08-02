@@ -883,7 +883,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 #print('Updated Neural Nets. Losses: critic1:{:.4f}, critic2:{:.4f}, policy_loss:{:.4f}, entropy_loss: {:.4f}, alpha:{:.4f}.'.format(critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha))
             
 
-            if(total_steps != 0 and total_steps % 50 == 0):
+            if(total_steps != 0 and total_steps % 1000 == 0):
                 print('Saving')
                 torch.save({
                         'steps': total_steps,
