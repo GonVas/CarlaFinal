@@ -754,10 +754,12 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
                 if(info != None): #{'scen_sucess':1, 'scen_metric':-1}
                     #np.savez(f, np.asarray([info['scen_sucess'], info['scen_metric']]))
                     print(info)
-                    np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([info['scen_sucess'], info['scen_metric']]))
+                    #np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([info['scen_sucess'], info['scen_metric']]))
                 else:
                     #np.savez(f, np.asarray([0, 0]))
-                    np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([0, 0]))
+                    
+                    pass
+                    #np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([0, 0]))
 
 
             #obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
@@ -785,3 +787,9 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
                     all_scenario_wins_rewards.append(-1)
 
                 break
+
+
+"""
+
+
+"""

@@ -2102,16 +2102,21 @@ class CarEnv:
 
         dist_to_dest_trav = self.last_ddest - new_d_dest
 
-        if(dist_to_dest_trav < -0.1): # allow for small backwards movements
-            dist_to_dest_trav *= np.clip(self.step_numb, 3, 10)
+        #if(dist_to_dest_trav < -0.1): # allow for small backwards movements
+        #    dist_to_dest_trav *= np.clip(self.step_numb, 3, 10)
 
-        reward = dist_to_dest_trav/(self.initial_dist/4)
 
+        # dist_to_dest_trav very small val need to pump it
+        reward = dist_to_dest_trav*50/self.initial_dist
+
+
+        
+
+        #print('CARLA GYM: Init_dis {}, Last Dis To Dest :  {}, new dis to dest {}, Distance Reward: {}'.format(self.initial_dist, self.last_ddest, new_d_dest, reward))
+
+        #time.sleep(1.5)
 
         self.last_ddest = new_d_dest
-
-        #print('Distance Reward: {}'.format(reward))
-
         return reward, False
 
 
@@ -2297,7 +2302,7 @@ class CarEnv:
             return reward, done, info
 
 
-    def _step(self, action, continuos=False):
+    def _step(self, action, continuos=False, skip_frames=3):
 
         self.step_numb += 1
         self.global_step_numb += 1

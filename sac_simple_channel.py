@@ -1,5 +1,6 @@
 import glob
 import time
+import os
 from collections import namedtuple, deque
 from random import randrange, uniform
 
@@ -330,6 +331,71 @@ def metrify(obs, steps, wall_start, all_actions, all_pol_stats, all_stds, all_me
 
 
 
+class DiskBuffer:
+
+  def __init__(self, max_size, filedir='diskbuffer/'):
+      self.max_size = max_size
+      self.buffer = deque(maxlen=max_size)
+      self.filedir = filedir
+      self.dir_name = filedir + str(int(round(time.time() * 1000)))
+      os.mkdir(self.dir_name)
+      self.seq = 0
+      print('Created folder {}, for disk buffer use, max exps: {}'.format(self.dir_name, max_size))
+
+  def push(self, state, hidden, action, reward, next_hidden, next_state, done):
+      #experience = (state, hidden, action, np.array([reward]), next_hidden, next_state, done)
+      #import pudb; pudb.set_trace()
+
+      image_np = np.asarray(state[0]*255).astype(np.uint8)
+      image_aug_np = np.asarray(state[1])
+
+      next_image_np = np.asarray(next_state[0]*255).astype(np.uint8)
+      next_image_aug_np = np.asarray(next_state[1])
+
+      with open(self.dir_name + '/exp_{}.npz'.format(self.seq), 'wb') as f:
+        np.savez(f, image_np, image_aug_np, hidden.to("cpu").detach().numpy(), action.to("cpu").detach().numpy(), np.array([reward]), next_hidden.to("cpu").detach().numpy(), next_image_np, next_image_aug_np, done)
+        self.buffer.append(self.dir_name + '/exp_{}.npz'.format(self.seq))
+        self.seq += 1
+
+
+  def sample(self, batch_size):
+      state_batch = []
+      action_batch = []
+      reward_batch = []
+      next_state_batch = []
+      done_batch = []
+      hidden_batch = []
+      next_hidden_batch = []
+
+      batch = random.sample(self.buffer, batch_size)
+      
+      for experience_file in batch:
+          data = np.load(experience_file)
+          image_ts, image_aug_ts, hidden, action, reward, next_hidden, next_image_ts, next_image_aug_ts, done = data.values()
+
+          state_batch.append((torch.FloatTensor(image_ts)/255, torch.FloatTensor(image_aug_ts)))
+          action_batch.append(torch.FloatTensor(action))
+          reward_batch.append(reward)
+          next_state_batch.append((torch.FloatTensor(next_image_ts)/255, torch.FloatTensor(next_image_aug_ts)))
+          done_batch.append(done)
+          hidden_batch.append(torch.FloatTensor(hidden))
+          next_hidden_batch.append(torch.FloatTensor(next_hidden))
+
+      return (state_batch, hidden_batch, action_batch, reward_batch, next_hidden_batch, next_state_batch, done_batch)
+
+
+
+      #import pudb; pudb.set_trace()
+
+      return (state_batch, hidden_batch, action_batch, reward_batch, next_hidden_batch, next_state_batch, done_batch)
+
+  def __len__(self):
+      return len(self.buffer)
+
+
+
+
+
 class BasicBuffer:
 
   def __init__(self, max_size):
@@ -368,6 +434,9 @@ class BasicBuffer:
 
   def __len__(self):
       return len(self.buffer)
+
+
+
 
 
 
@@ -590,7 +659,7 @@ class SAC():
         with torch.autograd.set_detect_anomaly(True):
 
             mem_state_batch, mem_first_hidden_batch, mem_action_batch, mem_reward_batch, mem_next_hidden_batch, mem_next_state_batch, mem_mask_batch = memory.sample(batch_size)
-
+            #import pudb; pudb.set_trace()
             mem_states_obs_batch, mem_states_aug_batch = zip(*mem_state_batch)
             mem_next_states_obs_batch, mem_next_states_aug_batch = zip(*mem_next_state_batch)
 
@@ -714,9 +783,16 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     #wandb.init()   
 
-    mem_max_size = hyperps['maxram']*6
+    #mem_max_size = hyperps['maxram']*6
 
-    memory = BasicBuffer(hyperps['maxram']*6)
+    #memory = BasicBuffer(hyperps['maxram']*6)
+
+    mem_max_size = 75_00
+    mem_start_thr = 0.70
+    mem_train_thr = 0.85
+
+    memory = DiskBuffer(mem_max_size)
+
 
     expert_memory = LoadBuffer('./human_samples/')
 
@@ -748,7 +824,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     to_plot = []
 
     #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
-    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 5, 1, 1, 2
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 1, 1, 1, 5
 
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
     change_rate = 0.1
@@ -772,11 +848,20 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
         for step_numb in range(hyperps['max_steps']):
 
-
+            action, log_prob, mean, std, hidden = None, None, None, None, None
             sac_agent.eval()
+            
+            if(len(memory) < mem_max_size*mem_start_thr):
+                #action = np.random.random((2, 1)) * 4 - 2
+                #action = torch.FloatTensor(action)
+                action = torch.rand(1, 2).to(device) * 4 - 2
+                log_prob, mean, std, hidden = torch.FloatTensor([[2.7]]), action, torch.FloatTensor([[0.5, 0.5]]), old_hidden
+                print('Memory not at {:3.3f}%, action random {}'.format(mem_start_thr*100, action))
+            else:
+                action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+            
 
-            action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
-
+            #import pudb;pudb.set_trace()
             all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
@@ -810,7 +895,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
 
             #if(total_steps >= 6500):
-            memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action, reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
+            memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
             #if(total_steps % 800 > 700):
             #    get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
@@ -871,7 +956,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             done |= total_steps == hyperps['max_steps']
 
 
-            if len(to_train_mem) > hyperps['batch_size'] and len(memory) > mem_max_size - 5:
+            if len(to_train_mem) > hyperps['batch_size'] and len(memory) > mem_train_thr*mem_max_size:
                 sac_agent.train()
                 print('Going to train, len of mem: {}'.format(len(memory)))
 
@@ -883,7 +968,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 #print('Updated Neural Nets. Losses: critic1:{:.4f}, critic2:{:.4f}, policy_loss:{:.4f}, entropy_loss: {:.4f}, alpha:{:.4f}.'.format(critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha))
             
 
-            if(total_steps != 0 and total_steps % 1000 == 0):
+            if(total_steps != 0 and total_steps % 10000 == 0):
                 print('Saving')
                 torch.save({
                         'steps': total_steps,
