@@ -1178,6 +1178,7 @@ class CarEnv:
         
         if(sim_fps != 0):
             self.delta_seconds = 1.0 / sim_fps
+            self.delta_seconds = 0.1
             self.frame = self.world.apply_settings(carla.WorldSettings(no_rendering_mode=False, synchronous_mode=True, fixed_delta_seconds=self.delta_seconds))
 
         self.blueprint_library = self.world.get_blueprint_library()
@@ -2307,40 +2308,44 @@ class CarEnv:
         self.step_numb += 1
         self.global_step_numb += 1
 
-        if(self.global_step_numb % self.change_weather_step == 0):
-            self.change_weather(self.global_step_numb)
 
-        self.tickworld()
+        for _ in range(skip_frames):
 
-        if(self.display2d):
-            self.render_2d_minimap()
+            if(self.global_step_numb % self.change_weather_step == 0):
+                self.change_weather(self.global_step_numb)
 
-        if(continuos == False):
+            self.tickworld()
 
-            if(isinstance(action, int)):
-                action = int(action/3), action%3
+            if(self.display2d):
+                self.render_2d_minimap()
 
-            thrt_action, steer_action = action
-            #Discrete(3) -> 0, 1, 2 -> transform to -1, 0, 1
-            thrt_action -= 1
-            steer_action -= 1
-            if(thrt_action > 0):
-                self.vehicle.apply_control(carla.VehicleControl(throttle=thrt_action, steer=steer_action*self.steer_amt))
+            if(continuos == False):
+
+                if(isinstance(action, int)):
+                    action = int(action/3), action%3
+
+                thrt_action, steer_action = action
+                #Discrete(3) -> 0, 1, 2 -> transform to -1, 0, 1
+                thrt_action -= 1
+                steer_action -= 1
+                if(thrt_action > 0):
+                    self.vehicle.apply_control(carla.VehicleControl(throttle=thrt_action, steer=steer_action*self.steer_amt))
+                else:
+                    self.vehicle.apply_control(carla.VehicleControl(brake=-thrt_action, steer=steer_action*self.steer_amt))
             else:
-                self.vehicle.apply_control(carla.VehicleControl(brake=-thrt_action, steer=steer_action*self.steer_amt))
-        else:
-            #self.vehicle.apply_control(carla.VehicleControl(throttle=action[0][0], steer=action[1][0]))
-            if(action[0].item() > 0):
-                self.vehicle.apply_control(carla.VehicleControl(throttle=action[0].item(), steer=action[1].item()))
-            else:
-                self.vehicle.apply_control(carla.VehicleControl(brake=-action[0].item(), steer=action[1].item()))
-        
-        reward, done, info = self.calculate_reward()
+                #self.vehicle.apply_control(carla.VehicleControl(throttle=action[0][0], steer=action[1][0]))
+                if(action[0].item() > 0):
+                    self.vehicle.apply_control(carla.VehicleControl(throttle=action[0].item(), steer=action[1].item()))
+                else:
+                    self.vehicle.apply_control(carla.VehicleControl(brake=-action[0].item(), steer=action[1].item()))
+            
+            reward, done, info = self.calculate_reward()
 
-        osb = self.make_final_output()
+            osb = self.make_final_output()
 
-        if(self.auto_reset and done):
-            self.reset()
+            if(self.auto_reset and done):
+                self.reset()
+                break
 
         return osb, reward, done, info
 

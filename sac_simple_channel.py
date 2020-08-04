@@ -823,7 +823,6 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     to_plot = []
 
-    #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
     w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 1, 1, 1, 5
 
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
@@ -908,7 +907,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             log_reward.append(reward)
 
             if done:
-                print('In SAC Done: {}'.format(len(memory)))
+                print('In SAC Done: {}, step : {}, epoch: {}'.format(len(memory), step_numb, epi))
 
                 if(info['scen_sucess'] != None and info['scen_sucess'] == 1):
                     all_scenario_wins_rewards.append(1)
@@ -918,32 +917,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 elif (info['scen_sucess'] != None and info['scen_sucess'] == -1):
                     all_scenario_wins_rewards.append(-1)
                     wandb.log({"all_scenario_wins_rewards": all_scenario_wins_rewards})
-                #{'scen_sucess':1, 'scen_metric':bench_rew}
-
-
-                """
-                if(len(system_of_eqs) != len(rewards_weights)):
-                    system_of_eqs.append(torch.sum(torch.FloatTensor(all_rewards), 0).numpy())
-                else:
-                    #import pudb; pudb.set_trace()
-                    inv = np.linalg.pinv(np.asarray(system_of_eqs)) 
-                    B = np.ones((1, len(rewards_weights))).T * info['scen_sucess']
-                    new_hyps = np.dot(inv, B)
-                    rewards_weights[0] = (rewards_weights[0] * (1 - change_rate)) + change_rate * new_hyps[0]
-                    rewards_weights[1] = (rewards_weights[1] * (1 - change_rate)) + change_rate * new_hyps[1]
-                    rewards_weights[2] = (rewards_weights[2] * (1 - change_rate)) + change_rate * new_hyps[2]
-                    rewards_weights[3] = (rewards_weights[3] * (1 - change_rate)) + change_rate * new_hyps[3]
-                    rewards_weights[4] = (rewards_weights[4] * (1 - change_rate)) + change_rate * new_hyps[4]
-                    print(rewards_weights)
-                    system_of_eqs = []
-                """
-
-                #import pudb; pudb.set_trace()
-
 
                 break
 
-            #print('Len of Memory: {}, Batch Size: {}'.format(len(memory), hyperps['batch_size']))
 
             to_train_mem = memory
             expert_data = False
@@ -991,7 +967,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     
     
     #sac_agent.save_models_final()
-
+    print('Final Save')
     torch.save({
             'steps': total_steps,
             'model_state_dict': sac_agent.actor.state_dict(),

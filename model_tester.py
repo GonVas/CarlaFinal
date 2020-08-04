@@ -330,6 +330,7 @@ class SAC():
     mean, log_std, hidden = self.actor.forward(obs)
 
     log_std = torch.tanh(log_std)
+    print(self.hyperps['log_std_max'])
     log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
 
     std = log_std.exp()

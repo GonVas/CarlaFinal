@@ -192,8 +192,8 @@ def run():
         args.epochs = 1000 if args.epochs == 0 else args.epochs 
         args.maxram = 16
     else:
-        args.batch_size = 4
-        args.epochs = 100 if args.epochs == 0  else args.epochs 
+        args.batch_size = 3
+        args.epochs = 1000 if args.epochs == 0  else args.epochs 
         args.maxram = 5
         args.no_cuda = False
 
@@ -215,11 +215,11 @@ def run():
 
     hyperps = {}
     hyperps['max_epochs'] = args.epochs
-    hyperps['max_steps'] = 10000
+    hyperps['max_steps'] = 20000
     hyperps['log_interval'] = int(args.epochs/10)
     hyperps['maxram'] = args.maxram
-    hyperps['q_lr'] = 0.003
-    hyperps['a_lr']= 0.003
+    hyperps['q_lr'] = 0.0003
+    hyperps['a_lr']= 0.0003
     hyperps['action_scale'] = 2.5
     hyperps['action_bias'] = 0
     hyperps['hidden'] = 256
@@ -251,8 +251,8 @@ def run():
 
     env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
     #final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device)
-    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
-    final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
+    final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
+    #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
     final_pol = 'pol_model_final.tar'
     final_q1 = 'q1_model_final.tar'
