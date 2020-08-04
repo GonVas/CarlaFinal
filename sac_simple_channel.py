@@ -560,35 +560,31 @@ class SAC():
   def sample(self, obs):
 
     mean, log_std, hidden = self.actor.forward(obs)
-
-    log_std = torch.tanh(log_std)
-    log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
-
+    
     std = log_std.exp()
     normal = Normal(mean, std)
-    
-  
     x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
     y_t = torch.tanh(x_t)
-
     action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
-    
     log_prob = normal.log_prob(x_t)
-    
-    # Enforcing Action Bound
 
-    log_prob = log_prob - torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
+    # Enforcing Action Bound
+    log_prob -= torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
     log_prob = log_prob.sum(1, keepdim=True)
 
     mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
 
+    entropy = normal.entropy()
+    entropy1, entropy2 = entropy[0][0].item(), entropy[0][1].item()
+
+    #print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2))
     return action, log_prob, mean, std, hidden
 
 
   def prob_action(self, obs, action_to_calc):
     # returns probability given policy -> π(action|obs)
 
-    mean, log_std, _ = self.actor.forward(obs)
+    mean, log_std, _, _ = self.actor.forward(obs)
 
     log_std = torch.tanh(log_std)
     log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
@@ -775,26 +771,17 @@ def get_saliency(obs, model, action, std, device):
     cv2.waitKey(1)
 
 
-def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./'):
-
-    #memory = BasicBuffer(hyperps['maxmem'])
+def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
+    # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
+    # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
 
     wandb.init(config=hyperps, force=True)
 
-    #wandb.init()   
+    mem_max_size = hyperps['maxmem']
+    mem_start_thr = 0.40
+    mem_train_thr = 0.50
 
-    #mem_max_size = hyperps['maxram']*6
-
-    #memory = BasicBuffer(hyperps['maxram']*6)
-
-    mem_max_size = 75_00
-    mem_start_thr = 0.70
-    mem_train_thr = 0.85
-
-    memory = DiskBuffer(mem_max_size)
-
-
-    expert_memory = LoadBuffer('./human_samples/')
+    memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
 
     print('Batch size: {}'.format(hyperps['batch_size']))
     
@@ -832,27 +819,24 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     old_hidden = torch.zeros(1, 256).to(device)
 
+    done = False
+
     for epi in range(hyperps['max_epochs']):
         obs = env.reset()
 
         print('Len of memory buffer: {}'.format(len(memory)))
         
         old_obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
-        #obs_t = torch.Tensor(obs).unsqueeze(0).transpose(1, 3).transpose(2, 3).float()
         
         total_steps += 1
 
-        print('Epoch: {}, Max Epochs: {}'.format(epi, hyperps['max_epochs']))
- 
-
+        print('Epoch: {}, Max Epochs: {}, max steps: {}'.format(epi, hyperps['max_epochs'], hyperps['max_steps']))
         for step_numb in range(hyperps['max_steps']):
 
             action, log_prob, mean, std, hidden = None, None, None, None, None
             sac_agent.eval()
             
             if(len(memory) < mem_max_size*mem_start_thr):
-                #action = np.random.random((2, 1)) * 4 - 2
-                #action = torch.FloatTensor(action)
                 action = torch.rand(1, 2).to(device) * 4 - 2
                 log_prob, mean, std, hidden = torch.FloatTensor([[2.7]]), action, torch.FloatTensor([[0.5, 0.5]]), old_hidden
                 print('Memory not at {:3.3f}%, action random {}'.format(mem_start_thr*100, action))
@@ -860,7 +844,6 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
             
 
-            #import pudb;pudb.set_trace()
             all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
@@ -881,7 +864,6 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             wandb.log({"final_r": reward, 'action':action.cpu(), 'log_prob':log_prob.cpu(), 'mean':mean.cpu(), 'std':std.cpu()})
 
-
             if(info != None):
                 print(info)
            
@@ -892,14 +874,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
 
-
-            #if(total_steps >= 6500):
             memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
-            #if(total_steps % 800 > 700):
-            #    get_saliency(obs, sac_agent.actor, action.cpu().detach().numpy()[0], std, device)
-            #    metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
-                
+    
             old_obs = obs
             old_hidden = hidden
 
@@ -923,16 +900,13 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             to_train_mem = memory
             expert_data = False
-            
-            #if(total_steps < 6500):
-            #    to_train_mem = expert_memory
-            #    expert_data = True
-
-
-            done |= total_steps == hyperps['max_steps']
-
+              
 
             if len(to_train_mem) > hyperps['batch_size'] and len(memory) > mem_train_thr*mem_max_size:
+                cuda_mem_before_train = open("cuda_mem_before_train_{}.txt".format(total_steps), "w")
+                cuda_mem_before_train.write(torch.cuda.memory_summary())
+                cuda_mem_before_train.close()
+                
                 sac_agent.train()
                 print('Going to train, len of mem: {}'.format(len(memory)))
 
@@ -940,11 +914,13 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
 
-                updates += 1
-                #print('Updated Neural Nets. Losses: critic1:{:.4f}, critic2:{:.4f}, policy_loss:{:.4f}, entropy_loss: {:.4f}, alpha:{:.4f}.'.format(critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha))
-            
+                updates += 1  
 
-            if(total_steps != 0 and total_steps % 10000 == 0):
+                cuda_mem_before_train = open("cuda_mem_after_train_{}.txt".format(total_steps), "w")
+                cuda_mem_before_train.write(torch.cuda.memory_summary())
+                cuda_mem_before_train.close()          
+
+            if(total_steps != 0 and total_steps % 10_000 == 0):
                 print('Saving')
                 torch.save({
                         'steps': total_steps,
@@ -964,9 +940,16 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 wandb.save(save_dir+'sac_model_{}.tar'.format(total_steps))
                 wandb.save(save_dir+'sac_c1_model_{}.tar'.format(total_steps))
                 wandb.save(save_dir+'sac_c2_model_{}.tar'.format(total_steps))
+
+
+            print('Totaal steps {}, max_steps: {}'.format(total_steps, hyperps['max_steps']))
+            if(total_steps >= hyperps['max_steps']):
+              break
+            
+        
+        if(total_steps >= hyperps['max_steps']):
+          break
     
-    
-    #sac_agent.save_models_final()
     print('Final Save')
     torch.save({
             'steps': total_steps,

@@ -329,27 +329,19 @@ class SAC():
 
     mean, log_std, hidden = self.actor.forward(obs)
 
-    log_std = torch.tanh(log_std)
-    print(self.hyperps['log_std_max'])
-    log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
-
-    std = log_std.exp()
+    std = log_std.exp() / 2
     normal = Normal(mean, std)
-    
-  
     x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
     y_t = torch.tanh(x_t)
-
     action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
-    
     log_prob = normal.log_prob(x_t)
-    
     # Enforcing Action Bound
-
-    log_prob = log_prob - torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
+    log_prob -= torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
     log_prob = log_prob.sum(1, keepdim=True)
 
     mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
+
+    #entropy = normal.entropy()
 
     return action, log_prob, mean, std, hidden
 
@@ -445,6 +437,7 @@ def metrify(obs, steps, wall_start, all_actions, all_pol_stats, all_stds, all_me
 
     k1 = multivariate_normal(mean=m1, cov=s1)
 
+    #import pudb; pudb.set_trace()
     # create a grid of (x,y) coordinates at which to evaluate the kernels
     xlim = (-2.5, 2.5)
     ylim = (-2.5, 2.5)
@@ -465,10 +458,15 @@ def metrify(obs, steps, wall_start, all_actions, all_pol_stats, all_stds, all_me
     pos[:, :, 0] = x; pos[:, :, 1] = y
 
     z = k1.pdf(pos)
+    z_th = np.tanh(z)
 
     fig, ax = plt.subplots()
 
-    ax.contourf(x,y,z)
+
+
+    
+
+    ax.contourf(x,y,z_th, color='purple')
     ax.plot(all_pol_stats[-1][0], all_pol_stats[-1][1], marker='o', markersize=3, color="red")
     ax.set_xlabel('Throttle')
     ax.set_ylabel('Steering')

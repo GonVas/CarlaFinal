@@ -187,15 +187,36 @@ def run():
     args = parser.parse_args()
 
 
+    hyperps = {}
+
+    save_dir = './'
+    load_buffer_dir = './diskbuffer/'
+
+
     if(args.production):
-        args.batch_size = 16
-        args.epochs = 1000 if args.epochs == 0 else args.epochs 
+        #args.batch_size = 4
+        total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
+        args.batch_size = int((total_mem_mb - 3000)/280)
+        args.epochs = 20_000 if args.epochs == 0 else args.epochs 
         args.maxram = 16
+        hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
+        hyperps['max_steps'] = 150_000
+        save_dir = './nvme/'
+        load_buffer_dir = './nvme/diskbuffer/'
+
+        if not os.path.exists('./nvme/'):
+            os.makedirs('./nvme/')
+
+        if not os.path.exists('./nvme/diskbuffer/'):
+            os.makedirs('./nvme/diskbuffer/')
     else:
-        args.batch_size = 3
-        args.epochs = 1000 if args.epochs == 0  else args.epochs 
+        args.batch_size = 4
+        # 1650MB cuda for batch 2, 1910 for batch 3, 2130 for batch 4, ~280MB per increase in batch size 
+        args.epochs = 130 if args.epochs == 0  else args.epochs 
         args.maxram = 5
         args.no_cuda = False
+        hyperps['maxmem'] = 500
+        hyperps['max_steps'] = 550
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -205,17 +226,9 @@ def run():
     print('Cuda exists: {}, Cuda version {}'.format(torch.cuda.is_available(), torch.version.cuda))
     print('Running Rl algorithm: {}'.format(args.rl))
 
-
-
-    files_to_save = []
-    base_save_dir = './project/savedmodels/rl/'
-
-
-    save_dir = base_save_dir+'sac_a3c/'
-
-    hyperps = {}
+    
     hyperps['max_epochs'] = args.epochs
-    hyperps['max_steps'] = 20000
+    
     hyperps['log_interval'] = int(args.epochs/10)
     hyperps['maxram'] = args.maxram
     hyperps['q_lr'] = 0.0003
@@ -242,7 +255,7 @@ def run():
     hyperps['log_std_max'] = 0.1
     hyperps['log_std_min'] = 0.01
     hyperps['epsilon'] = 1e-6
-    hyperps['maxmem'] = 2000000
+    
 
  
     os.environ['WANDB_MODE'] = 'run'
@@ -250,8 +263,8 @@ def run():
 
 
     env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
-    #final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device)
-    final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
+    final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
+    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
     final_pol = 'pol_model_final.tar'
@@ -259,12 +272,6 @@ def run():
     final_q2 = 'q2_model_final.tar'
     final_tq1 = 'tq1_model_final.tar'
     final_tq2 = 'tq2_model_final.tar'
-
-    #data_pol = open(save_dir+final_pol, 'rb').read()
-    #data_q1 = open(save_dir+final_q1, 'rb').read()
-    #data_q2 = open(save_dir+final_q2, 'rb').read()
-    #data_tq1 = open(save_dir+final_tq1, 'rb').read()
-    #data_tq2 = open(save_dir+final_tq2, 'rb').read()
 
 
 if __name__ == '__main__':

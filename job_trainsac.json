@@ -1,0 +1,24 @@
+{
+  "jobDefinition": {
+    "name": "CarlaSAC",
+    "description": "Trains carla Final SAC RL",
+
+    "resources": {
+      "gpus": 1,
+      "systemMemory": 10000,
+      "cpuCores": 10,
+      "minCudaVersion":10,
+      "clusterId": 6
+    },
+    "dockerImage": "gonvas/carlarlrunner:latest",
+    "jobDataLocations": [
+      {
+        "sharePath": "/project_scratch",
+        "mountPoint": "/home/carla/nvme/"
+      }
+    ],
+    "portMappings": [ { "containerPort": 80 }, { "containerPort": 2000 } ],
+
+    "environment": { }
+  }
+}
