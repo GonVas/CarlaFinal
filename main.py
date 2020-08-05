@@ -197,10 +197,10 @@ def run():
         #args.batch_size = 4
         total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
         args.batch_size = int((total_mem_mb - 3000)/280)
-        args.epochs = 20_000 if args.epochs == 0 else args.epochs 
+        args.epochs = 2_000_000 if args.epochs == 0 else args.epochs 
         args.maxram = 16
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
-        hyperps['max_steps'] = 150_000
+        hyperps['max_steps'] = 2_000_000
         save_dir = './nvme/'
         load_buffer_dir = './nvme/diskbuffer/'
 

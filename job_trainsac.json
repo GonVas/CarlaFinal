@@ -1,24 +1,31 @@
+
+
 {
-  "jobDefinition": {
     "name": "CarlaSAC",
     "description": "Trains carla Final SAC RL",
+    "request": {
+        "resources": {
+            "cpus": 8,
+            "gpus": 1,
+            "cpuMemoryGb": 10,
+            "clusterId": 6
+        },
+        "docker": {
+            "image": "gonvas/carlarlrunner:latest",
 
-    "resources": {
-      "gpus": 1,
-      "systemMemory": 10000,
-      "cpuCores": 10,
-      "minCudaVersion":10,
-      "clusterId": 6
-    },
-    "dockerImage": "gonvas/carlarlrunner:latest",
-    "jobDataLocations": [
-      {
-        "sharePath": "/project_scratch",
-        "mountPoint": "/home/carla/nvme/"
-      }
-    ],
-    "portMappings": [ { "containerPort": 80 }, { "containerPort": 2000 } ],
-
-    "environment": { }
-  }
+            "storage": [
+                {
+                    "containerPath": "/home/carla/nvme",
+                    "hostPath": "/project_scratch"
+                }
+            ],
+            "portMappings": [
+                {
+                    "containerPort": 22,
+                    "hostPort": null,
+                    "hostIp": null
+                }
+            ]
+        }
+    }
 }
