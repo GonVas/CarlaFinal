@@ -356,7 +356,7 @@ class ResNetRLGRUCritic(ResNetRLGRU):
 
         #self.last_hidden = hidden
 
-        val = F.tanh(self.val(F.relu(hidden)))
+        val = torch.tanh(self.val(F.relu(hidden)))
 
         return val
 

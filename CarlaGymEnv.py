@@ -1346,7 +1346,7 @@ class CarEnv:
                 self.static_index += 1
                 self.actor_list.append((rgbback))
         
-
+            """
             if(sensor == 'minimap'):
                 minimap = self.blueprint_library.find('sensor.camera.rgb')
                 minimap.set_attribute("image_size_x", f"{self.car_im_width}")
@@ -1359,12 +1359,12 @@ class CarEnv:
                 minimap.listen(lambda data: self.process_img(data, what_index4))
                 self.static_index += 1
                 self.actor_list.append((minimap))
-
+            """
 
         self.front_camera_transform = carla.Transform(carla.Location(x=2.5, z=0.7))
         self.minimap_camera_transform = carla.Transform(location=carla.Location(x=0.0, y=0.0, z=100.0), rotation=carla.Rotation(pitch=270.0, yaw=0.0, roll=0.0))
 
-        """
+        
         lidar = self.blueprint_library.find('sensor.lidar.ray_cast')
         #lidar.set_attribute("image_size_x", f"{self.car_im_width}")
         #lidar.set_attribute("image_size_y", f"{self.car_im_height}")
@@ -1387,127 +1387,12 @@ class CarEnv:
 
         #import pudb; pudb.set_trace()
 
-        #what_index4 = int(self.static_index) + 1 - 1
-        lidar.listen(lambda data: self.process_lidar(data))
+        what_index4 = int(self.static_index) + 1 - 1
+        lidar.listen(lambda data: self.process_lidar(data, what_index4))
         self.actor_list.append((lidar))
-        """
-        #def get_unreal_transform(self): 
-            #to_unreal_transform = Transform(Rotation(yaw=90), Scale(z=-1))
-            #return self.get_transform() * to_unreal_transform
+        self.static_index += 1
 
-    @staticmethod
-    def get_matrix(transform):
-        """
-        Creates matrix from carla transform.
-        """
-
-        rotation = transform.rotation
-        location = transform.location
-        c_y = np.cos(np.radians(rotation.yaw))
-        s_y = np.sin(np.radians(rotation.yaw))
-        c_r = np.cos(np.radians(rotation.roll))
-        s_r = np.sin(np.radians(rotation.roll))
-        c_p = np.cos(np.radians(rotation.pitch))
-        s_p = np.sin(np.radians(rotation.pitch))
-        matrix = np.matrix(np.identity(4))
-        matrix[0, 3] = location.x
-        matrix[1, 3] = location.y
-        matrix[2, 3] = location.z
-        matrix[0, 0] = c_p * c_y
-        matrix[0, 1] = c_y * s_p * s_r - s_y * c_r
-        matrix[0, 2] = -c_y * s_p * c_r - s_y * s_r
-        matrix[1, 0] = s_y * c_p
-        matrix[1, 1] = s_y * s_p * s_r + c_y * c_r
-        matrix[1, 2] = -s_y * s_p * c_r + c_y * s_r
-        matrix[2, 0] = s_p
-        matrix[2, 1] = -c_p * s_r
-        matrix[2, 2] = c_p * c_r
-        return matrix
-
-
-    def process_lidar(self, data):
-
-        #img_h, img_w, height, width = 300
-        """
-
-        WINDOW_WIDTH = 200
-        WINDOW_HEIGHT = 160
-
-        WINDOW_WIDTH_HALF = WINDOW_WIDTH / 2
-        WINDOW_HEIGHT_HALF = WINDOW_HEIGHT / 2
-
-        k = np.identity(3)
-        k[0, 2] = WINDOW_WIDTH_HALF
-        k[1, 2] = WINDOW_HEIGHT_HALF
-        k[0, 0] = k[1, 1] = WINDOW_WIDTH / (2.0 * math.tan(90.0 * math.pi / 360.0))
-
-        lidar_data = np.asarray(data.raw_data, np.int32).reshape(-1, 4)
-
-        rot = [0, 270, 0]
-        # pitch (Y) - yaw (Z) - roll (X)
-        """
-
-
-
-        
-
-        #rot = [0, 3*pi/2, 0]
-
-
-        #c = [130, 125, 250]   
-
-        #print(data.transform.location)
-        #print(np.asarray(data.raw_data).reshape(-1, 4)[:10])
-
-        #data_ = np.asarray(data.raw_data).reshape(-1, 4)
-
-        #print('Mean_x : {}, Max_x:{}, Min_y:{}'.format(data_[:, 0].mean(), data_[:, 0].max(), data_[:, 0].min()))
-
-        #c = [200, -100, data.transform.location.z + 19]
-
-        #[130, 200, 250]
-
-        #c = [0.5, 0.5, 0.5]
-
-        #print([self.vehicle.get_transform().location.x, self.vehicle.get_transform().location.y, data.transform.location.z + 18])
-
-        #s = [300, 300]
-
-        #r = [300, 300, 1]
-
-        #e = [3, 3, 3]
-        #blank_image = np.zeros((300, 300, 3), np.uint32)
-        #cl_point = 10000000
-
-        #eps = 1e-6
-
-        #import pudb; pudb.set_trace()
-        """
-        for idx, point in enumerate(np.asarray(data.raw_data).reshape(-1, 4)):
-            
-            #point_no_depth = lidar_data[:, [0, 1, 2]]
-            #point_depth = lidar_data[:, 3]
-            #if(idx == 4826):
-            #    import pudb; pudb.set_trace()
-
-            a = point[:3] / 255
-            point_depth = point[3]
-
-            m_1 = np.asarray([[1, 0, 0], [0, np.cos(rot[0]), np.sin(rot[0])], [0, -np.sin(rot[0]), np.cos(rot[0])]])
-            m_2 = np.asarray([[np.cos(rot[1]), 0, -np.sin(rot[1])], [0, 1, 0], [np.sin(rot[1]), 0, np.cos(rot[1])]])
-            m_3 = np.asarray([[np.cos(rot[2]), np.sin(rot[2]), 0], [-np.sin(rot[2]), np.cos(rot[2]), 0], [0, 0, 1]])
-            vec = a - c
-
-            d_vec = m_1 @ m_2 @ m_3 @ vec
-
-            bx = int((d_vec[0] * s[0]) / (d_vec[2]*r[0] + eps)    *   r[2])
-            by = int((d_vec[1] * s[1]) / (d_vec[2]*r[1] + eps)    *   r[2])
-
-            if(bx > 0 and bx < 300 and by > 0 and by < 300):
-                #blank_image[bx, by][1] =  np.clip(point_depth + blank_image[bx, by][1], 0, cl_point)
-                #blank_image[bx, by][1] =  max(point_depth,  blank_image[bx, by][1])
-                blank_image[bx, by][1] += point_depth
-        """
+    def process_lidar(self, data, index):
 
         hud_dim = [300, 300]
 
@@ -1525,87 +1410,18 @@ class CarEnv:
         lidar_img_size = (hud_dim[0], hud_dim[1], 3)
         lidar_img = np.zeros((lidar_img_size), dtype = int)
 
-#for idx, point in enumerate(lidar_data):
-    #import pudb; pudb.set_trace()
-#    lidar_img[point[0]][point[1]][1] += points[idx][3]*10
-    #lidar_img[point.T] = (0, points[idx][3] + lidar_img[point.T][1], 0)
-
-
         lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
 
 
-        #for idx, point in enumerate(np.asarray(data.raw_data).reshape(-1, 4)):
-        #    point_depth = point[3]
-        #    blank_image[point[1]][point[2]][1]+= point_depth*0.001
+        self.final_output[index] = lidar_img
 
-        #cv2.imwrite('./depth_test_{}.png'.format(15), lidar_img) 
-        print('Shwoing')
-        cv2.imshow('Proj_x_test', lidar_img.astype(np.uint8))
-        cv2.waitKey(0)
-        cv2.waitKey(1)
-        print('Shown')
+        self.last_lidar = lidar_img
 
 
-
-
-
-        """
-        
-        lidar_to_car_transform_matrix = CarEnv.get_matrix(self.lidar_transform)
-        camera_to_car_transform_matrix = CarEnv.get_matrix(self.minimap_camera_transform)
-
-        #lidar_data
-
-        for i in range(lidar_data.shape[0]):
-            pos_vector = np.array([  [lidar_data[i,0]], [lidar_data[i,1]], [lidar_data[i,2]], [1.0]])
-            point_pos = np.dot(lidar_to_car_transform_matrix, pos_vector)
-            point_pos = np.dot(inv(camera_to_car_transform_matrix), point_pos)
-            pos2d = np.dot(k, point_pos[:3])
-            pos2d = np.array([pos2d[0] / pos2d[2], pos2d[1] / pos2d[2], pos2d[2]])
-            if pos2d[2] > 0:
-                x_2d = WINDOW_WIDTH - pos2d[0]
-                y_2d = WINDOW_HEIGHT - pos2d[1]
-                if (x_2d >= 0 and x_2d < WINDOW_WIDTH and y_2d >= 0 and y_2d < WINDOW_HEIGHT):
-                    print(x_2d, y_2d)
-                    #draw_rect(x_2d, y_2d, rgb_image)
-        """
-
-        """
-        project_matrix = np.asarray([[1,0,0], [0,0,0], [0,0,1]])
-        lidar_data = np.asarray(data.raw_data).reshape(-1, 4)
-
-        def f2d(x):
-            return project_matrix @ x
-
-        lidar_data_nodepth = lidar_data[:, [0, 1, 2]]
-        lidar_just_depth = lidar_data[:, 3]
-
-        
-        blank_image = np.zeros((50, 50, 3), np.uint8)
-    
-        lidar_in_2d = np.asarray(list(map(f2d, lidar_data_nodepth)))
-        lidar_in_2d = lidar_in_2d[:, [0, 2]]
-
-        for idx, point in enumerate(lidar_in_2d):
-
-            if(point.max() > 49):
-                continue
-
-            if(blank_image[point[0]][point[1]][0] == 0):
-                blank_image[point[0]][point[1]] = (lidar_just_depth[idx], 0, 0)
-            else:
-                blank_image[point[0]][point[1]] = (min(lidar_just_depth[idx], blank_image[point[0]][point[1]][0]), 0, 0)
-
-        
-        cv2.imwrite('lidar_proj{}.png'.format(self.global_step_numb), blank_image) 
-        #cv2.imshow('Proj', blank_image)
-        #cv2.waitKey(1)
-        """
-
-        if(self.global_step_numb != 0 and self.global_step_numb % 10 == 0):
-            data.save_to_disk('./data/lidar/%.6d.ply' % data.frame)
-            with open('lidar_array_{}.npy'.format(self.global_step_numb), 'wb') as f:
-                np.save(f, np.asarray(data.raw_data))
+        #if(self.global_step_numb != 0 and self.global_step_numb % 10 == 0):
+        #    data.save_to_disk('./data/lidar/%.6d.ply' % data.frame)
+        #    with open('lidar_array_{}.npy'.format(self.global_step_numb), 'wb') as f:
+        #        np.save(f, np.asarray(data.raw_data))
 
 
     def env_init(self):
@@ -1849,6 +1665,10 @@ class CarEnv:
 
         #final_img = final_img.transpose((-1, 0, 1)).astype(np.float32)/255 # Why this
         
+        #final_img[-1] = self.last_lidar
+
+        #import pudb; pudb.set_trace()
+
         final_img = final_img.astype(np.float32)/255
 
         if(self.to_record_frame):
@@ -2417,13 +2237,17 @@ class CarEnv:
 
 
 class CarEnvScenario(CarEnv):
-
+    # Example: python scenario_runner.py --scenario FollowLeadingVehicle_1 --reloadWorld --repetitions 10
     def __init__(self, rank):
 
         #super(CarEnvScenario, self).__init__(rank, sparse=True, start_init=False)
-        super(CarEnvScenario, self).__init__(rank, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=True, start_init=False, sim_fps=0)
-
+        super(CarEnvScenario, self).__init__(rank, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=True, start_init=False, display2d=False, sim_fps=0)
+        self.global_scenario_numb = 0
+        self.scen_init()
         #import pudb; pudb.set_trace()
+
+
+    def scen_init(self):
         
         while self.vehicle is None:
             print("Scenario not yet ready")
@@ -2432,6 +2256,7 @@ class CarEnvScenario(CarEnv):
             for vehicle in possible_vehicles:
                 if vehicle.attributes['role_name'] == "hero":
                     self.vehicle = vehicle
+                    print('Found Vehicle')
 
         self._server_clock = pygame.time.Clock()
 
@@ -2473,6 +2298,8 @@ class CarEnvScenario(CarEnv):
 
         time.sleep(0.3)
 
+        self.global_step_numb = 0
+
         #self.world.restart(self.vehicle)
 
         colsensor = self.blueprint_library.find("sensor.other.collision")
@@ -2501,12 +2328,62 @@ class CarEnvScenario(CarEnv):
 
         self.last_col = None
 
+
+        self.to_reset = False
+        #self.curr_scenario_file = 'scenario_{}_results.txt'.format(self.global_scenario_numb)
+
         #return self.make_final_output()
 
+
+
     def calculate_reward(self):
-        return 0, False
+
+
+        try:
+            f = open('done.txt', "r")
+            f.close()
+            print('Done with all the scenarios, return end of episode')
+            return [0, 0, 0, 0, 0, 0], True, {'scen_sucess':0, 'scen_metric':0}
+        except IOError:
+            pass
+
+
+        if(self.to_reset):
+            print('Finished Scenario, waiting some time to next')
+            time.sleep(2)
+            _ = self.reset()
+            
+            return [0, 0, 0, 0, 0, 0], False, None
+
+
+        try:
+            f = open('scenario_{}_results.txt'.format(self.global_scenario_numb), "r")
+            score = f.read()
+            f.close()
+            
+            scen_succes = 0
+            if(float(score) > 0):
+                scen_succes = 1
+            else:
+                scen_succes = -1
+
+            print('CarlaGymEnv: Finished scenario, scen_sucess:{}, score: {}'.format(scen_succes, score))
+            self.global_scenario_numb += 1
+            self.to_reset = True
+            return [0, 0, 0, 0, 0, float(score)], True, {'scen_sucess':scen_succes, 'scen_metric':float(score)}
+        except IOError:
+            return [0, 0, 0, 0, 0, 0], False, None
 
     def reset(self):
+
+        for actor in self.actor_list:
+            actor.destroy()
+
+        self.vehicle = None
+        time.sleep(3)
+        self.scen_init()
+        self.to_reset = False
+
         return self.make_final_output()
 
     def on_tick_stub(self, timestamp):

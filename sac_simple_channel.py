@@ -190,7 +190,7 @@ def stats(step, all_actions, all_pol_stats, all_stds, all_means, all_rewards, al
 
 
 def metrify(obs, steps, wall_start, all_actions, all_pol_stats, all_stds, all_means, all_rewards, all_scenario_wins_rewards, all_final_reward, all_q_vals, to_plot):
-
+    #import pudb; pudb.set_trace()
     m1 = (all_means[-1][0], all_means[-1][1])
 
     s1 = np.eye(2)
@@ -233,7 +233,7 @@ def metrify(obs, steps, wall_start, all_actions, all_pol_stats, all_stds, all_me
     plot_img = np.asarray(pil_plot)[...,:3]
 
     
-    pil_obs = transforms.ToPILImage()(obs[0][0])
+    pil_obs = transforms.ToPILImage()(obs[0][0].cpu())
     _draw = ImageDraw.Draw(pil_obs)
 
     _draw.text((5, 10), 'FPS: %.3f, steps: %.3f' % (steps / (time.time() - wall_start), steps))
@@ -778,8 +778,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     wandb.init(config=hyperps, force=True)
 
     mem_max_size = hyperps['maxmem']
-    mem_start_thr = 0.40
-    mem_train_thr = 0.50
+    mem_start_thr = 0.1
+    mem_train_thr = 0.2
 
     memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
 
@@ -850,14 +850,18 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             all_rewards.append(reward)
 
-            print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}, waypoint: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4], w_waypoint*reward[5]))
+            if(total_steps % 100 == 0):
+              print('Reward: Vel: {:.5f}, time: {:.5f}, dis: {:.5f}, col: {:.5f}, lan: {:.5f}, waypoint: {:.5f}'.format(w_vel*reward[0], w_t*reward[1], w_dis*reward[2],  w_col*reward[3], w_lan*reward[4], w_waypoint*reward[5]))
             
             wandb.log({'reward_vel':w_vel*reward[0], 'reward_time':w_t*reward[1], 'reward_dist':w_dis*reward[2], 'reward_col':w_col*reward[3], 'reward_lane':w_lan*reward[4], 'reward_waypoint':w_waypoint*reward[5]})
 
             reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4] + w_waypoint*reward[5])/6
 
 
-            print('Final Sum Reward: {:.5f}'.format(reward))
+            if(total_steps % 100 == 0):
+              print('Final Sum Reward: {:.5f}'.format(reward))
+              print('Total steps {}, max_steps: {}'.format(total_steps, hyperps['max_steps']))
+
 
             all_final_rewards.append(reward)
 
@@ -876,7 +880,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
-    
+            #metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
+
             old_obs = obs
             old_hidden = hidden
 
@@ -902,10 +907,10 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             expert_data = False
               
 
-            if len(to_train_mem) > hyperps['batch_size'] and len(memory) > mem_train_thr*mem_max_size:
-                cuda_mem_before_train = open("cuda_mem_before_train_{}.txt".format(total_steps), "w")
-                cuda_mem_before_train.write(torch.cuda.memory_summary())
-                cuda_mem_before_train.close()
+            if len(to_train_mem) > hyperps['batch_size']*10 and len(memory) > mem_train_thr*mem_max_size:
+                #cuda_mem_before_train = open("cuda_mem_before_train_{}.txt".format(total_steps), "w")
+                #cuda_mem_before_train.write(torch.cuda.memory_summary())
+                #cuda_mem_before_train.close()
                 
                 sac_agent.train()
                 print('Going to train, len of mem: {}'.format(len(memory)))
@@ -916,9 +921,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
                 updates += 1  
 
-                cuda_mem_before_train = open("cuda_mem_after_train_{}.txt".format(total_steps), "w")
-                cuda_mem_before_train.write(torch.cuda.memory_summary())
-                cuda_mem_before_train.close()          
+                #cuda_mem_before_train = open("cuda_mem_after_train_{}.txt".format(total_steps), "w")
+                #cuda_mem_before_train.write(torch.cuda.memory_summary())
+                #cuda_mem_before_train.close()          
 
             if(total_steps != 0 and total_steps % 10_000 == 0):
                 print('Saving')
@@ -942,7 +947,6 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 wandb.save(save_dir+'sac_c2_model_{}.tar'.format(total_steps))
 
 
-            print('Totaal steps {}, max_steps: {}'.format(total_steps, hyperps['max_steps']))
             if(total_steps >= hyperps['max_steps']):
               break
             

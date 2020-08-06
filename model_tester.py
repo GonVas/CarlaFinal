@@ -466,7 +466,7 @@ def metrify(obs, steps, wall_start, all_actions, all_pol_stats, all_stds, all_me
 
     
 
-    ax.contourf(x,y,z_th, color='purple')
+    ax.contourf(x,y,z_th)
     ax.plot(all_pol_stats[-1][0], all_pol_stats[-1][1], marker='o', markersize=3, color="red")
     ax.set_xlabel('Throttle')
     ax.set_ylabel('Steering')
@@ -635,6 +635,8 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     old_hidden = torch.zeros(1, 256).to(device)
 
+    final_done = False
+
 
     for epi in range(hyperps['max_epochs']):
         obs = env.reset()
@@ -703,10 +705,23 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
                 #{'scen_sucess':1, 'scen_metric':bench_rew}
 
 
+                try:
+                    f = open('done.txt', "r")
+                    f.close()
+                    print('Model Tester, done everython, ending and saving')
+                    final_done = True
+                except IOError:
+                    pass
+
+
                 break
 
 
-            done |= total_steps == hyperps['max_steps']
+            done |= total_steps >= hyperps['max_steps']
+
+        if(final_done):
+            print('Saving nets, ending everything')
+            break
 
 
     return sac_agent

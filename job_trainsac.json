@@ -2,7 +2,7 @@
 
 {
     "name": "CarlaSAC",
-    "description": "Trains carla Final SAC RL",
+    "description": "Trains carla Final SAC RL and LIDAR, test gpumem",
     "request": {
         "resources": {
             "cpus": 8,

@@ -196,7 +196,7 @@ def run():
     if(args.production):
         #args.batch_size = 4
         total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
-        args.batch_size = int((total_mem_mb - 3000)/280)
+        args.batch_size = int((total_mem_mb - 3000)/260)
         args.epochs = 2_000_000 if args.epochs == 0 else args.epochs 
         args.maxram = 16
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
@@ -210,7 +210,7 @@ def run():
         if not os.path.exists('./nvme/diskbuffer/'):
             os.makedirs('./nvme/diskbuffer/')
     else:
-        args.batch_size = 4
+        args.batch_size = 3
         # 1650MB cuda for batch 2, 1910 for batch 3, 2130 for batch 4, ~280MB per increase in batch size 
         args.epochs = 130 if args.epochs == 0  else args.epochs 
         args.maxram = 5
@@ -262,16 +262,14 @@ def run():
     os.environ['WANDB_API_KEY'] = "4b3486db7da0dff72366b5e2b6b791ae41ae3b9f"
 
 
-    env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
-    final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
-    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
+    #env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
+    
+    env = CarlaGymEnv.CarEnvScenario(0)
+
+    #final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
+    final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
-    final_pol = 'pol_model_final.tar'
-    final_q1 = 'q1_model_final.tar'
-    final_q2 = 'q2_model_final.tar'
-    final_tq1 = 'tq1_model_final.tar'
-    final_tq2 = 'tq2_model_final.tar'
 
 
 if __name__ == '__main__':
