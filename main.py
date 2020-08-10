@@ -264,10 +264,14 @@ def run():
 
     #env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
     
-    env = CarlaGymEnv.CarEnvScenario(0)
+    final_nn = sac_simple_channel.run_sac_dist(hyperps)
 
-    #final_nn = sac_simple_channel.run_sac(env, ((300, 900), 3), 2, hyperps, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
-    final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
+
+    #env = CarlaGymEnv.CarEnvScenario(0)
+    #(env, hyperps, shared_model, shared_optim, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/')
+    #final_nn = sac_simple_channel.run_sac(env, hyperps, None, None, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
+    
+    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
 

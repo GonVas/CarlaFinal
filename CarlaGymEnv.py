@@ -1127,6 +1127,7 @@ class CarEnv:
                     step_type="skipping",
                     to_record=False,
                     display2d=True,
+                    distributed=False,
                     discrete=True):
 
         print('Initializing Car Env')
@@ -1138,11 +1139,15 @@ class CarEnv:
         self.to_record = to_record
         self.sensor_img_save = sensor_img_save
 
+        self.distributed = distributed
+
+        if(self.distributed):
+            print('Running distributed, add lock')
+            self.lock = None
+
         self.auto_reset = auto_reset
 
         self.show_cam = show_preview
-
-        self.withlock = withlock
 
         self.dist_reward = dist_reward
 
@@ -1459,15 +1464,13 @@ class CarEnv:
 
         self.global_step_numb = 0
 
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
   
         self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=0.0))
         
         self.step_numb = 0
     
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
 
         time.sleep(0.3)
 
@@ -1494,8 +1497,7 @@ class CarEnv:
         self.episode_start = time.time()
         self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=0.0))
 
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
 
         self.last_col = None
 
@@ -1528,8 +1530,7 @@ class CarEnv:
 
         self.image_index = 0
 
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
   
         self.step_numb = 0
 
@@ -1537,8 +1538,7 @@ class CarEnv:
 
         self.episode_start = time.time()
 
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
 
         self.vehicle.set_simulate_physics(True)
 
@@ -1625,12 +1625,21 @@ class CarEnv:
 
 
     def tickworld(self):
-        if(not self.withlock):
-            self.world.tick()
+        if(not self.distributed):
+            if(self.rank == 0):
+                self.world.tick()
+            else:
+                print('Not rank 0 ticking on CarlaGymEnv, please instanciate env with distributed=True or add Lock')
         else:
-            self.lock.acquire()
-            self.world.tick()
-            self.lock.release()
+            if(self.lock != None):
+                self.lock.acquire()
+                self.world.tick()
+                self.lock.release()
+            else:
+                print('Env distributed but no lock, if not initial constructor then add lock.')
+                if(self.rank == 0):
+                    self.world.tick()
+
 
 
     def process_img(self, image, numb):
@@ -2286,15 +2295,13 @@ class CarEnvScenario(CarEnv):
 
         self.image_index = 0
 
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
   
         self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=0.0))
         
         self.step_numb = 0
     
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
 
         time.sleep(0.3)
 
@@ -2323,8 +2330,7 @@ class CarEnvScenario(CarEnv):
         self.episode_start = time.time()
         self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=0.0))
 
-        if(self.rank == 0):
-            self.world.tick()
+        self.tickworld()
 
         self.last_col = None
 
@@ -2333,7 +2339,6 @@ class CarEnvScenario(CarEnv):
         #self.curr_scenario_file = 'scenario_{}_results.txt'.format(self.global_scenario_numb)
 
         #return self.make_final_output()
-
 
 
     def calculate_reward(self):
