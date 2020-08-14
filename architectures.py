@@ -268,7 +268,7 @@ class ResNetRLGRU(nn.Module):
             msg_in = torch.zeros(hidden.shape[0], self.msg_dim).float()
         else:
             if(msg_in.shape[0] != hidden.shape[0]):
-                print('msg_in_shape: {}, additional_flat: {}'.format(str(msg_in.shape), str(aditional_flat.shape)))
+                #print('msg_in_shape: {}, additional_flat: {}'.format(str(msg_in.shape), str(aditional_flat.shape)))
                 #msg_in = msg_in.repeat(hidden.shape[0], 1)
                 msg_in = torch.zeros(hidden.shape[0], self.msg_dim).float()
 
@@ -287,13 +287,17 @@ class ResNetRLGRU(nn.Module):
         #self.last_hidden = hidden
 
         msg = F.relu(self.msg_lin(hidden))
-
-
-        print('Msg IN: {}, msg_out : {}'.format(msg_in, msg))
+        
 
         mu = self.mu(F.relu(hidden))
 
         log_std = self.log_std(F.relu(hidden))
+
+
+        msg[:, 0:12] = aditional_flat
+
+
+        #print('Msg IN: {}, msg_out : {}'.format(msg_in, msg))
 
         return mu, log_std, hidden, msg
 

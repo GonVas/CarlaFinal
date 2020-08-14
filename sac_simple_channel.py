@@ -859,7 +859,7 @@ def get_saliency(obs, model, action, std, device):
 
 
 
-def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
+def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
     # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
     # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
     print('Running SAC')
@@ -881,7 +881,14 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sa
     env = CarlaGymEnv.CarEnv(rank, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=True)
     env.lock = lock
 
+    #sac_agent = pre_trained_model
+
+    
     sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
+
+    if(pre_trained_model != None):
+      sac_agent.actor = pre_trained_model
+
 
     sac_agent.shared_msg_buff = shared_msg_buff
 
@@ -1540,22 +1547,11 @@ def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"
 
 
 
-def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
+def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
     #memory = BasicBuffer(hyperps['maxmem'])
 
     print('Running Behaviour Cloning')
-    wandb.init(config=hyperps, force=True)
-
-    mem_max_size = hyperps['maxmem']
-    mem_start_thr = 0.1
-    mem_train_thr = 0.125
-
-    memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
-
-    if(sample_buffer != None):
-      memory = sample_buffer
-
-
+    #wandb.init(config=hyperps, force=True)
 
     print('Batch size: {}'.format(hyperps['batch_size']))
     
@@ -1565,10 +1561,6 @@ def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg
     sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
 
     sac_agent.shared_msg_buff = shared_msg_buff
-
-    wandb.watch(sac_agent.actor)
-    wandb.watch(sac_agent.critic1)
-    wandb.watch(sac_agent.critic2)
 
     wall_start = time.time()
 
@@ -1581,22 +1573,18 @@ def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg
 
     files = glob.glob('./human_samples/' + '*.npz')
 
+
     files_train, files_val, files_unseen = files[0:int(len(files)*0.7)], files[int(len(files)*0.7):int(len(files)*0.9)], files[int(len(files)*0.9):len(files)]
 
 
+    policy_dataset = PolicyDataset(files_train, hyperps['batch_size'], device)
 
-    policy_dataset = PolicyDataset(files_train, batch_size, device)
+    critic_dataset = CriticDataset(files_train, hyperps['batch_size'], device)
+    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=hyperps['batch_size'], num_workers=4)
 
-    critic_dataset = CriticDataset(files_train, batch_size, device)
+    epochs = 1
 
-
-    #import pudb; pudb.set_trace()
-
-
-    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=batch_size, num_workers=4)
-
-    epochs = 100
-
+    print('Training on {} human samples, testing/validating on {} samples. Max {} epochs.'.format(len(files_train), len(files_val), epochs))
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
@@ -1604,6 +1592,9 @@ def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg
     for epoch in range(epochs):
 
         train_loss = 0
+        old_hidden = torch.zeros(hyperps['batch_size'], 256).to(device)
+
+        print('Going fro another epocshj')
 
         for batch_idx, data in enumerate(train_loader):
             #data = load_batch(batch_idx, True)
@@ -1615,40 +1606,42 @@ def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg
 
             optimizer.zero_grad()
 
-            #import pudb; pudb.set_trace()
-
-            mean, log_std = policy_net((data_img, data_img_aug))
-            
-            log_std = torch.tanh(log_std)
-            log_std = hyperps['log_std_min'] + 0.5 * (hyperps['log_std_max'] - hyperps['log_std_min']) * (log_std + 1)
-
+            mean, log_std, hidden, _ = policy_net((data_img, data_img_aug, old_hidden))
+ 
             std = log_std.exp()
             normal = Normal(mean, std)
-    
             x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
             y_t = torch.tanh(x_t)
-
             pol_action = y_t * hyperps['action_scale'] + hyperps['action_bias']
-            
-            
-            #log_prob = normal.log_prob(x_t)
-            
+            log_prob = normal.log_prob(x_t)
+
             # Enforcing Action Bound
+            log_prob -= torch.log(hyperps['action_scale'] * (1 - y_t.pow(2)) + hyperps['epsilon'])
+            log_prob = log_prob.sum(1, keepdim=True)
 
-            #log_prob = log_prob - torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
-            #log_prob = log_prob.sum(1, keepdim=True)
+            mean = torch.tanh(mean) * hyperps['action_scale'] + hyperps['action_bias']
 
-            #mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
-
-            #outputs = torch.cat(mu, log_std, dim=1)
+            entropy = normal.entropy()
+            entropy1, entropy2 = entropy[0][0].item(), entropy[0][1].item()
 
             loss = criterion(pol_action, data_action)
             loss.backward()
             train_loss += loss.item()
             optimizer.step()
 
-            if(batch_idx != 0 and batch_idx % log_step == 0):
+
+            if(batch_idx > 15):
+              break
+
+
+            if(batch_idx != 0 and batch_idx % 10 == 0):
+              print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2))
+
+            old_hidden = hidden
+
+            if(batch_idx != 0 and batch_idx % 2 == 0):
                 print('Epoch: {}, Train Loss: {}, this batch_loss : {}'.format(epoch, train_loss, loss.item()))
+
 
         if(epoch != 0 and epoch % 5 == 0):
             print('Saving')
@@ -1657,7 +1650,7 @@ def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg
                 'model_state_dict': sac_agent.actor.state_dict(),
                 }, save_dir+'sac_model_{}_bl.tar'.format(total_steps))
 
-            wandb.save(save_dir+'sac_model_{}_bl.tar'.format(total_steps))
+            #wandb.save(save_dir+'sac_model_{}_bl.tar'.format(total_steps))
 
     torch.save({
             'steps': total_steps,
@@ -1670,8 +1663,8 @@ def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg
             }, save_dir+'bc_final_sac_c1_model.tar')
 
 
-    wandb.save(save_dir+'bc_final_sac_model.tar')
-    wandb.save(save_dir+'bc_final_sac_c1_model.tar')
+    #wandb.save(save_dir+'bc_final_sac_model.tar')
+    #wandb.save(save_dir+'bc_final_sac_c1_model.tar')
 
 
     return sac_agent
@@ -1714,6 +1707,7 @@ def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=Tru
 
   #run_sac(env, hyperps, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
   if(not double_phase):
+    print('Normal SAC Dist')
     p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list))
     p1.start(); processes.append(p1)
     time.sleep(15)
@@ -1725,16 +1719,20 @@ def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=Tru
   else:
 
     # Behaviour Cloning
+    print('Behaviour Cloning + RL SAC Dist')
+    # shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buf
+    
+    sac_bcl_agent = behavior_cloning(0, lock, hyperps, shared_msg_list)
 
-    # bc(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
-    policy_nets = behavior_cloning()
+    #sac_bcl_agent.actor.share_memory_()
+    print('Finished behaviour Cloning going for RL')
 
-
-    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list))
+    #rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None
+    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
     p1.start(); processes.append(p1)
     time.sleep(15)
     
-    p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list))
+    p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
     p2.start(); processes.append(p2)
     time.sleep(15)
 
