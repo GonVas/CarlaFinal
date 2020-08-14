@@ -34,7 +34,7 @@ import cv2
 from PIL import Image, ImageDraw
 
 import wandb
-from architectures import ResNetRLGRU, ResNetRLGRUCritic
+from architectures_singular import ResNetRLGRU, ResNetRLGRUCritic
 
 # default `log_dir` 
 
@@ -42,240 +42,25 @@ from architectures import ResNetRLGRU, ResNetRLGRUCritic
 
 
 
-class SQNet(nn.Module):
-    
-    def __init__(self, num_inputs, num_actions, hidden_size=512, conv_channels=6, kernel_size=3, size_1=32, size_2=64, size_3=32):
-        super(SQNet, self).__init__()
-
-        #self.num_inputs = num_inputs
-        
-        self.state_size, channels_in = num_inputs
-        self.num_actions = num_actions
-
-
-        self.conv1 = nn.Conv2d(channels_in, conv_channels, kernel_size, stride=1)
-
-        self.size_now = self.conv_output_shape(self.state_size) 
-
-        self.pool1 = nn.MaxPool2d(2, 2)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.conv2 = nn.Conv2d(conv_channels, conv_channels*2, kernel_size)
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-        self.pool2 = nn.MaxPool2d(2, 2)
-
-
-        self.conv3 = nn.Conv2d(conv_channels*2, conv_channels*2, kernel_size)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-
-        self.pool3 = nn.MaxPool2d(2, 2)
-
-
-        self.size_now = int(self.size_now[0]/2) * int(self.size_now[1]/2) * conv_channels*2
-
-
-        #import pudb; pudb.set_trace()
-
-        #self.l1 = nn.Linear(num_inputs + num_actions, hidden_size)
-        self.l1 = nn.Linear(self.size_now + num_actions + 12, hidden_size)
-        self.l2 = nn.Linear(hidden_size, int(hidden_size/2))
-        self.l3 = nn.Linear(int(hidden_size/2), int(hidden_size/16))
-        self.l4 = nn.Linear(int(hidden_size/16), 1)
-
-
-    def forward(self, state, action):
-
-        x, aditional = state
-
-        aditional_flat = aditional.reshape(-1, 12)
-        
-        
-        x = self.pool1(F.relu(self.conv1(x)))
-
-        x = self.pool2(F.relu(self.conv2(x)))
-
-        x = self.pool3(F.relu(self.conv3(x)))
-
-
-        x = x.reshape(-1, self.size_now)
-
-
-        x = torch.cat([x.reshape(-1, self.size_now), action.view(-1, self.num_actions)], 1)
-
-        x_aug = torch.cat((x, aditional_flat), dim=1)
-
-        x_aug = F.relu(self.l1(x_aug))
-        x_aug = F.relu(self.l2(x_aug))
-        x_aug = F.relu(self.l3(x_aug))
-
-        x_aug = self.l4(x_aug)
-        return x_aug
-
-
-    def conv_output_shape(self, h_w, kernel_size=3, stride=1, pad=0, dilation=1):
-        
-        #Utility function for computing output of convolutions
-        #takes a tuple of (h,w) and returns a tuple of (h,w)
-                
-        if type(h_w) is not tuple:
-            h_w = (h_w, h_w)
-        
-        if type(kernel_size) is not tuple:
-            kernel_size = (kernel_size, kernel_size)
-        
-        if type(stride) is not tuple:
-            stride = (stride, stride)
-        
-        if type(pad) is not tuple:
-            pad = (pad, pad)
-        
-        h = (h_w[0] + (2 * pad[0]) - (dilation * (kernel_size[0] - 1)) - 1)// stride[0] + 1
-        w = (h_w[1] + (2 * pad[1]) - (dilation * (kernel_size[1] - 1)) - 1)// stride[1] + 1
-        
-        return h, w
-
-
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_size, action_size, conv_channels=6, kernel_size=3, size_1=1024, size_2=512, size_3=256):
-        super(Actor, self).__init__()
-
-        self.state_size, channels_in = state_size
-        self.action_size = action_size
-
-
-        self.conv1 = nn.Conv2d(channels_in, conv_channels, kernel_size, stride=1)
-
-        self.size_now = self.conv_output_shape(self.state_size) 
-
-        self.conv1_bn = nn.BatchNorm2d(conv_channels)
-
-        self.pool1 = nn.MaxPool2d(2, 2)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.conv2 = nn.Conv2d(conv_channels, conv_channels*2, kernel_size)
-
-        self.conv2_bn = nn.BatchNorm2d(conv_channels*2)
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-        self.pool2 = nn.MaxPool2d(2, 2)
-
-
-        self.conv3 = nn.Conv2d(conv_channels*2, conv_channels*2, kernel_size)
-
-        self.conv3_bn = nn.BatchNorm2d(conv_channels*2)
-
-        self.size_now = (int(self.size_now[0]/2), int(self.size_now[1]/2))
-
-        self.size_now = self.conv_output_shape(self.size_now)
-
-
-        self.pool3 = nn.MaxPool2d(2, 2)
-
-
-        self.size_now = int(self.size_now[0]/2) * int(self.size_now[1]/2) * conv_channels*2
-
-        self.fc1 = nn.Linear(self.size_now+12, size_1)
-
-        self.bn_fc1 = nn.BatchNorm1d(size_1)
-
-        self.fc2 = nn.Linear(size_1, size_2)
-
-        self.bn_fc2 = nn.BatchNorm1d(size_2)
-
-        self.fc3 = nn.Linear(size_2, size_3)
-
-        self.bn_fc3 = nn.BatchNorm1d(size_3)
-
-        self.mu = nn.Linear(size_3, action_size)
-
-        self.log_std = nn.Linear(size_3, action_size)
-
-
-    def forward(self, state):
-
-        x, aditional = state
-
-        aditional_flat = aditional.reshape(-1, 12)
-
-        x = self.pool1(F.relu(self.conv1_bn(self.conv1(x))))
-
-        x = self.pool2(F.relu(self.conv2_bn(self.conv2(x))))
-
-        x = self.pool3(F.relu(self.conv3_bn(self.conv3(x))))
-
-
-        x = x.reshape(-1, self.size_now)
-
-        x_aug = torch.cat((x, aditional_flat), dim=1)
-
-        #import pudb; pudb.set_trace()
-        x_aug = F.relu(self.bn_fc1(self.fc1(x_aug)))
-        x_aug = F.relu(self.bn_fc2(self.fc2(x_aug)))
-
-        x_aug = F.relu(self.bn_fc3(self.fc3(x_aug)))
-
-        mu = self.mu(x_aug)
-
-        log_std = self.log_std(x_aug)
-
-        return mu, log_std
-
-
-    def conv_output_shape(self, h_w, kernel_size=3, stride=1, pad=0, dilation=1):
-        
-        #Utility function for computing output of convolutions
-        #takes a tuple of (h,w) and returns a tuple of (h,w)
-                
-        if type(h_w) is not tuple:
-            h_w = (h_w, h_w)
-        
-        if type(kernel_size) is not tuple:
-            kernel_size = (kernel_size, kernel_size)
-        
-        if type(stride) is not tuple:
-            stride = (stride, stride)
-        
-        if type(pad) is not tuple:
-            pad = (pad, pad)
-        
-        h = (h_w[0] + (2 * pad[0]) - (dilation * (kernel_size[0] - 1)) - 1)// stride[0] + 1
-        w = (h_w[1] + (2 * pad[1]) - (dilation * (kernel_size[1] - 1)) - 1)// stride[1] + 1
-        
-        return h, w
-
-
-
 class SAC():
 
-  def __init__(self, env, obs_size, num_actions, hyperps, device, train=True):
-
+  def __init__(self, rank, env_action_shape, hyperps, device, train=True):
     self.hyperps = hyperps
-    self.env = env
+    self.env_action_shape = env_action_shape
     self.device = device
+    
+    #self.num_actions = num_actions
 
-    self.num_actions = num_actions
 
-
-    if(len(obs_size) == 1):
-        self.obs_state = obs_size[0]
-        self.obs_state_size = obs_size[0]
-        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
-    else:
-        self.obs_state = obs_size
-        self.obs_state_size =  obs_size[0][0] * obs_size[0][1] * obs_size[1]
-        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(self.obs_state, self.num_actions).to(device)
+    #if(len(obs_size) == 1):
+        #self.obs_state = obs_size[0]
+        #self.obs_state_size = obs_size[0]
+    
+    self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
+    #else:
+        #self.obs_state = obs_size
+        #self.obs_state_size =  obs_size[0][0] * obs_size[0][1] * obs_size[1]
+    #    self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(self.obs_state, self.num_actions).to(device)
 
 
     self.critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
@@ -284,10 +69,29 @@ class SAC():
     self.targ_critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
     self.targ_critic2 = ResNetRLGRUCritic(3, 2, 12).to(device)
 
+    print('Before params copy')
 
-    self.targ_critic1.load_state_dict(self.critic1.state_dict())
-    self.targ_critic2.load_state_dict(self.critic2.state_dict())
+    params1 = self.critic1.named_parameters()
+    params2 = self.targ_critic1.named_parameters()
 
+    dict_params2 = dict(params2)
+
+    for name1, param1 in params1:
+        if name1 in dict_params2:
+          dict_params2[name1].data.copy_(param1.data)
+
+
+
+    params1 = self.critic2.named_parameters()
+    params2 = self.targ_critic2.named_parameters()
+
+    dict_params2 = dict(params2)
+
+    for name1, param1 in params1:
+        if name1 in dict_params2:
+          dict_params2[name1].data.copy_(param1.data)
+
+    print('Afeter params copy')
 
     if(train):
  
@@ -296,12 +100,14 @@ class SAC():
 
         # entropy temperature
         self.alpha = self.hyperps['alpha']
-        self.target_entropy = -torch.prod(torch.Tensor(self.env.action_space.shape).to(self.device)).item()
+        #self.target_entropy = -torch.prod(torch.Tensor(self.env.action_space.shape).to(self.device)).item()
+        self.target_entropy = -torch.prod(torch.Tensor(self.env_action_shape).to(self.device)).item()
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = optim.Adam([self.log_alpha], lr=self.hyperps['a_lr'])
         
     else:
         self.try_load()
+
 
 
   def critic(self, obs, action):
@@ -596,9 +402,10 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     #import pudb; pudb.set_trace()
     
     #load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
-    load_files = ['/home/gonvas/Programming/carlaFinal/final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/final_sac_c1_model.tar', '/home/gonvas/Programming/carlaFinal/final_sac_c2_model.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/sac_lidar_model_160000.tar', '/home/gonvas/Programming/carlaFinal/sac_lidar_c1_model_160000.tar', '/home/gonvas/Programming/carlaFinal/sac_lidar_c2_model_160000.tar']
 
-    sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
+    sac_agent = SAC(0, env.action_space.shape, hyperps, device)
+
 
     sac_agent.load_models(load_files)
 

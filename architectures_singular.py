@@ -199,7 +199,7 @@ class ResNet(nn.Module):
 
 class ResNetRLGRU(nn.Module):
     
-    def __init__(self, in_channels, action_size, aditional_size, block=ResNetBottleNeckBlock, msg_dim=32, deepths=[3, 4, 6, 3], size_mem=256, *args, **kwargs):
+    def __init__(self, in_channels, action_size, aditional_size, block=ResNetBottleNeckBlock, deepths=[3, 4, 6, 3], size_mem=256, *args, **kwargs):
         super().__init__()
         self.encoder = ResNetEncoder(in_channels, *args, **kwargs)
         #self.decoder = ResnetDecoder(self.encoder.blocks[-1].blocks[-1].expanded_channels, n_classes)
@@ -209,8 +209,6 @@ class ResNetRLGRU(nn.Module):
         # For divider 4 -> 256*10*29 
         # TODO change this to func
 
-
-
         self.lin_state_size = 256*10*29
         self.avg = nn.AdaptiveAvgPool2d((10, 4)) # Done to put low amount of parameters
         self.lin_state_size = 256*10*4 # For final use 16 instead of 4
@@ -218,21 +216,17 @@ class ResNetRLGRU(nn.Module):
 
 
 
-        self.fc1 = nn.Linear(self.lin_state_size + msg_dim + self.aditional_size, self.lin_state_size//10)
+        self.fc1 = nn.Linear(self.lin_state_size + self.aditional_size, self.lin_state_size//10)
         
 
         self.hidden = nn.GRUCell(self.lin_state_size//10, size_mem)
 
         self.mu = nn.Linear(size_mem, action_size)
 
-        self.log_std = nn.Linear(size_mem, action_size)      
-
-        self.msg_dim = 32
-
-        self.msg_lin = nn.Linear(size_mem, msg_dim)   
+        self.log_std = nn.Linear(size_mem, action_size)        
 
 
-    def forward(self, x_aditional_hidden, msg_in=None):
+    def forward(self, x_aditional_hidden):
 
         x, aditional, hidden = x_aditional_hidden
 
@@ -255,25 +249,7 @@ class ResNetRLGRU(nn.Module):
 
         x = x.reshape(-1, self.lin_state_size)
 
-
-
-        #msg_in_flat = torch.zeros(aditional_flat.shape[0], self.msg_dim).float()
-
-        #if(msg_in != None):
-        #    msg_in_flat = msg_in.reshape(-1, self.msg_dim)
-
-
-
-        if(msg_in == None):
-            msg_in = torch.zeros(hidden.shape[0], self.msg_dim).float()
-        else:
-            if(msg_in.shape[0] != hidden.shape[0]):
-                print('msg_in_shape: {}, additional_flat: {}'.format(str(msg_in.shape), str(aditional_flat.shape)))
-                #msg_in = msg_in.repeat(hidden.shape[0], 1)
-                msg_in = torch.zeros(hidden.shape[0], self.msg_dim).float()
-
-
-        x_aug = torch.cat((x, aditional_flat, msg_in), dim=1)
+        x_aug = torch.cat((x, aditional_flat), dim=1)
 
 
         x_aug = F.relu(self.fc1(x_aug))
@@ -286,16 +262,11 @@ class ResNetRLGRU(nn.Module):
 
         #self.last_hidden = hidden
 
-        msg = F.relu(self.msg_lin(hidden))
-
-
-        print('Msg IN: {}, msg_out : {}'.format(msg_in, msg))
-
         mu = self.mu(F.relu(hidden))
 
         log_std = self.log_std(F.relu(hidden))
 
-        return mu, log_std, hidden, msg
+        return mu, log_std, hidden
 
 
     def forward_for_summary(self, state):
@@ -338,20 +309,18 @@ class ResNetRLGRU(nn.Module):
 
 
 class ResNetRLGRUCritic(ResNetRLGRU):
-    def __init__(self, in_channels, action_size, aditional_size, block=ResNetBottleNeckBlock, msg_dim=32, deepths=[3, 4, 6, 3], size_mem=256, *args, **kwargs):
+    def __init__(self, in_channels, action_size, aditional_size, block=ResNetBottleNeckBlock, deepths=[3, 4, 6, 3], size_mem=256, *args, **kwargs):
         super().__init__(in_channels, action_size, aditional_size, block=ResNetBottleNeckBlock, deepths=[3, 4, 6, 3], size_mem=256, *args, **kwargs)
 
-        self.fc1 = nn.Linear(self.lin_state_size + self.aditional_size + msg_dim + 2, self.lin_state_size//10)
-
-        self.msg_dim = msg_dim
-
-        self.msg_lin = nn.Linear(size_mem, msg_dim) 
+        self.fc1 = nn.Linear(self.lin_state_size + self.aditional_size + 2, self.lin_state_size//10)
 
         self.val = nn.Linear(size_mem, 1) 
 
-    def forward(self, x_aditional_hidden, action, msg_in=None):
+    def forward(self, x_aditional_hidden, action):
 
         x, aditional, hidden = x_aditional_hidden
+
+
 
         #x, aditional = x_aditional_hidden
 
@@ -374,13 +343,7 @@ class ResNetRLGRUCritic(ResNetRLGRU):
 
         #import pudb; pudb.set_trace()
 
-        msg_in_flat = torch.zeros(action_flat.shape[0], self.msg_dim).float()
-
-        if(msg_in != None):
-            msg_in_flat = msg_in.reshape(-1, self.msg_dim)
-
-
-        x_aug = torch.cat((x, aditional_flat, action_flat, msg_in_flat), dim=1)
+        x_aug = torch.cat((x, aditional_flat, action_flat), dim=1)
 
 
         x_aug = F.relu(self.fc1(x_aug))
@@ -393,11 +356,9 @@ class ResNetRLGRUCritic(ResNetRLGRU):
 
         #self.last_hidden = hidden
 
-        msg = F.relu(self.msg_lin(hidden))
-
         val = torch.tanh(self.val(F.relu(hidden)))
 
-        return val, msg
+        return val
 
 def resnet101(in_channels, n_classes):
     return ResNet(in_channels, n_classes, block=ResNetBottleNeckBlock, deepths=[3, 4, 6, 3])

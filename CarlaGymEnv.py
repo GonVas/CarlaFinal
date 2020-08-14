@@ -2080,6 +2080,7 @@ class CarEnv:
         dist_l_reward.append(col_reward)
 
         lane_reward, lane_done = self.cal_lane_reward()
+    
 
         reward += lane_reward * lane_w
         done |= lane_done

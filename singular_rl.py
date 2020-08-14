@@ -1,3 +1,4 @@
+ 
 import glob
 import time
 import os
@@ -38,11 +39,6 @@ import wandb
 
 import random
 
-import torch.multiprocessing as mp
-from torch.multiprocessing import Lock
-
-os.environ['OMP_NUM_THREADS'] = '1'
-
 
 from torch.utils.data.dataset import Dataset
 
@@ -52,10 +48,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 
 
-from architectures import ResNetRLGRU, ResNetRLGRUCritic
+from architectures_singular import ResNetRLGRU, ResNetRLGRUCritic
 
-
-import CarlaGymEnv
 # default `log_dir` is "runs" - we'll be more specific here
 
 class VanillaBackprop():
@@ -497,48 +491,25 @@ class LoadBuffer:
 
 
 
-class SharedAdam(torch.optim.Adam): # extend a pytorch optimizer so it shares grads across processes
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
-        super(SharedAdam, self).__init__(params, lr, betas, eps, weight_decay)
-        for group in self.param_groups:
-            for p in group['params']:
-                state = self.state[p]
-                state['shared_steps'], state['step'] = torch.zeros(1).share_memory_(), 0
-                state['exp_avg'] = p.data.new().resize_as_(p.data).zero_().share_memory_()
-                state['exp_avg_sq'] = p.data.new().resize_as_(p.data).zero_().share_memory_()
-                
-        def step(self, closure=None):
-            for group in self.param_groups:
-                for p in group['params']:
-                    if p.grad is None: continue
-                    self.state[p]['shared_steps'] += 1
-                    self.state[p]['step'] = self.state[p]['shared_steps'][0] - 1 # a "step += 1"  comes later
-            super.step(closure)
-
-
-
 class SAC():
 
-  def __init__(self, rank, env_action_shape, hyperps, device, train=True):
+  def __init__(self, env, obs_size, num_actions, hyperps, device, train=True):
 
     self.hyperps = hyperps
-    self.env_action_shape = env_action_shape
+    self.env = env
     self.device = device
-    self.rank = rank
 
-    
-    #self.num_actions = num_actions
+    self.num_actions = num_actions
 
 
-    #if(len(obs_size) == 1):
-        #self.obs_state = obs_size[0]
-        #self.obs_state_size = obs_size[0]
-    
-    self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
-    #else:
-        #self.obs_state = obs_size
-        #self.obs_state_size =  obs_size[0][0] * obs_size[0][1] * obs_size[1]
-    #    self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(self.obs_state, self.num_actions).to(device)
+    if(len(obs_size) == 1):
+        self.obs_state = obs_size[0]
+        self.obs_state_size = obs_size[0]
+        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
+    else:
+        self.obs_state = obs_size
+        self.obs_state_size =  obs_size[0][0] * obs_size[0][1] * obs_size[1]
+        self.actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(self.obs_state, self.num_actions).to(device)
 
 
     self.critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
@@ -547,29 +518,9 @@ class SAC():
     self.targ_critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
     self.targ_critic2 = ResNetRLGRUCritic(3, 2, 12).to(device)
 
-    print('Before params copy')
+    self.targ_critic1.load_state_dict(self.critic1.state_dict())
+    self.targ_critic2.load_state_dict(self.critic2.state_dict())
 
-    params1 = self.critic1.named_parameters()
-    params2 = self.targ_critic1.named_parameters()
-
-    dict_params2 = dict(params2)
-
-    for name1, param1 in params1:
-        if name1 in dict_params2:
-          dict_params2[name1].data.copy_(param1.data)
-
-
-
-    params1 = self.critic2.named_parameters()
-    params2 = self.targ_critic2.named_parameters()
-
-    dict_params2 = dict(params2)
-
-    for name1, param1 in params1:
-        if name1 in dict_params2:
-          dict_params2[name1].data.copy_(param1.data)
-
-    print('Afeter params copy')
 
     if(train):
  
@@ -578,8 +529,7 @@ class SAC():
 
         # entropy temperature
         self.alpha = self.hyperps['alpha']
-        #self.target_entropy = -torch.prod(torch.Tensor(self.env.action_space.shape).to(self.device)).item()
-        self.target_entropy = -torch.prod(torch.Tensor(self.env_action_shape).to(self.device)).item()
+        self.target_entropy = -torch.prod(torch.Tensor(self.env.action_space.shape).to(self.device)).item()
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = optim.Adam([self.log_alpha], lr=self.hyperps['a_lr'])
         
@@ -587,21 +537,12 @@ class SAC():
         self.try_load()
 
 
-
-
   def critic(self, obs, action):
-    c1, msg1 = self.critic1(obs, action) 
-    c2, msg2 = self.critic2(obs, action)
-
-    return c1, c2, msg1, msg2
+    return self.critic1(obs, action), self.critic2(obs, action)
 
 
   def critic_target(self, obs, action):
-
-    c1, msg1 = self.targ_critic1(obs, action)
-    c2, msg2 = self.targ_critic2(obs, action)
-
-    return c1, c2, msg1, msg2
+    return self.targ_critic1(obs, action), self.targ_critic2(obs, action)
 
 
   def eval(self):
@@ -617,25 +558,9 @@ class SAC():
     self.critic2.train()
 
 
-  def actor_msg_forward(self, obs):
-
-    final_msg = torch.zeros(1, self.actor.msg_dim).float().to(self.device)
-
-    for msg in self.shared_msg_buff:
-      final_msg += msg
-
-    final_msg = final_msg/len(self.shared_msg_buff)
-
-    mean, log_std, hidden, msg = self.actor.forward(obs, final_msg)
-
-    self.shared_msg_buff[self.rank] = msg.detach().mean(dim=0)
-
-    return mean, log_std, hidden, msg.detach()
-
-
   def sample(self, obs):
 
-    mean, log_std, hidden, msg = self.actor_msg_forward(obs)
+    mean, log_std, hidden = self.actor.forward(obs)
     
     std = log_std.exp()
     normal = Normal(mean, std)
@@ -654,13 +579,13 @@ class SAC():
     entropy1, entropy2 = entropy[0][0].item(), entropy[0][1].item()
 
     #print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2))
-    return action, log_prob, mean, std, hidden, msg
+    return action, log_prob, mean, std, hidden
 
 
   def prob_action(self, obs, action_to_calc):
     # returns probability given policy -> π(action|obs)
 
-    mean, log_std, _, _, _ = self.actor.forward(obs)
+    mean, log_std, _, _ = self.actor.forward(obs)
 
     log_std = torch.tanh(log_std)
     log_std = self.hyperps['log_std_min'] + 0.5 * (self.hyperps['log_std_max'] - self.hyperps['log_std_min']) * (log_std + 1)
@@ -722,7 +647,7 @@ class SAC():
         print('\nFinal SAC saved model\n')
 
 
-  def update(self, memory, updates, shared_model, shared_optimizer, expert_data=False):
+  def update(self, memory, updates, expert_data=False):
         batch_size=self.hyperps['batch_size']
         gamma=self.hyperps['gamma']
         tau=self.hyperps['tau']
@@ -756,8 +681,8 @@ class SAC():
 
             with torch.no_grad():
                 #import pudb; pudb.set_trace()
-                next_state_action, next_state_log_pi, _, _, next_hidden, _ = self.sample((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch))
-                qf1_next_target, qf2_next_target, targ_ms1, targ_ms2 = self.critic_target((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch), next_state_action)
+                next_state_action, next_state_log_pi, _, _, next_hidden= self.sample((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch))
+                qf1_next_target, qf2_next_target = self.critic_target((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch), next_state_action)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
                 next_q_value = reward_batch + mask_batch * gamma * (min_qf_next_target)
             
@@ -768,7 +693,7 @@ class SAC():
                     prob_expert = torch.ones_like(prob_beh) * 0.90 # Assume expert is almost confident on what it did
                     is_cs = torch.min(torch.ones_like(prob_expert)*1.5, prob_expert/prob_beh)
 
-            qf1, qf2, c1_ms1, c2_ms2 = self.critic((state_obs_batch.detach(), state_aug_batch.detach(), first_hidden_batch.detach()), action_batch.detach())  # Two Q-functions to mitigate positive bias in the policy improvement step
+            qf1, qf2 = self.critic((state_obs_batch.detach(), state_aug_batch.detach(), first_hidden_batch.detach()), action_batch.detach())  # Two Q-functions to mitigate positive bias in the policy improvement step
             qf1_loss = F.mse_loss(qf1, next_q_value * is_cs)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
             qf2_loss = F.mse_loss(qf2, next_q_value * is_cs)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
             qf_loss = qf1_loss + qf2_loss 
@@ -779,28 +704,17 @@ class SAC():
             qf_loss.backward()
             self.critic_optim.step()
 
-            pi, log_pi, _, _, _, _ = self.sample((state_obs_batch, state_aug_batch, first_hidden_batch))
+            pi, log_pi, _, _, _ = self.sample((state_obs_batch, state_aug_batch, first_hidden_batch))
 
-            qf1_pi, qf2_pi, c1_ms1, c2_ms2 = self.critic((state_obs_batch, state_aug_batch, first_hidden_batch), pi)
+            qf1_pi, qf2_pi = self.critic((state_obs_batch, state_aug_batch, first_hidden_batch), pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
 
             policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean() # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
 
-            #self.policy_optim.zero_grad()
-            #policy_loss.backward()
-            #self.policy_optim.step()
-
-
-            shared_optimizer.zero_grad()
+            self.policy_optim.zero_grad()
             policy_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 40)
-        
-            for param, shared_param in zip(self.actor.parameters(), shared_model.parameters()):
-              if shared_param.grad is None: shared_param._grad = param.grad # sync gradients with shared model
-            shared_optimizer.step()
-
-
+            self.policy_optim.step()
 
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
 
@@ -858,32 +772,21 @@ def get_saliency(obs, model, action, std, device):
     cv2.waitKey(1)
 
 
-
-def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
+def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
     # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
     # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
-    print('Running SAC')
+
     wandb.init(config=hyperps, force=True)
 
     mem_max_size = hyperps['maxmem']
     mem_start_thr = 0.1
-    mem_train_thr = 0.125
+    mem_train_thr = 0.2
 
     memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
 
-    if(sample_buffer != None):
-      memory = sample_buffer
-
-
-
     print('Batch size: {}'.format(hyperps['batch_size']))
     
-    env = CarlaGymEnv.CarEnv(rank, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=True)
-    env.lock = lock
-
-    sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
-
-    sac_agent.shared_msg_buff = shared_msg_buff
+    sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
 
     wandb.watch(sac_agent.actor)
     wandb.watch(sac_agent.critic1)
@@ -920,7 +823,6 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sa
     done = False
 
     for epi in range(hyperps['max_epochs']):
-
         obs = env.reset()
 
         print('Len of memory buffer: {}'.format(len(memory)))
@@ -940,15 +842,10 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sa
                 log_prob, mean, std, hidden = torch.FloatTensor([[2.7]]), action, torch.FloatTensor([[0.5, 0.5]]), old_hidden
                 print('Memory not at {:3.3f}%, action random {}'.format(mem_start_thr*100, action))
             else:
-                action, log_prob, mean, std, hidden, _ = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+                action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
             
-            
 
-            q1, q2, msg1, msg2 = sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)
-
-            #all_q_vals.append(min(q1, q2).cpu().item())
-
-            all_q_vals.append(min(q1, q2).cpu().item())
+            all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
 
@@ -984,7 +881,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sa
 
             memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
-            metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
+            #metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
 
             old_obs = obs
             old_hidden = hidden
@@ -1019,11 +916,11 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sa
                 sac_agent.train()
                 print('Going to train, len of mem: {}'.format(len(memory)))
 
-                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, shared_model, shared_optim, expert_data)
+                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, expert_data)
                 
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
 
-                updates += 1
+                updates += 1  
 
                 #cuda_mem_before_train = open("cuda_mem_after_train_{}.txt".format(total_steps), "w")
                 #cuda_mem_before_train.write(torch.cuda.memory_summary())
@@ -1054,10 +951,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sa
             if(total_steps >= hyperps['max_steps']):
               break
             
-        if(epi % 3 == 0):
-          print('Syncyng Shared Model')
-          sac_agent.actor.load_state_dict(shared_model.state_dict())
-
+        
         if(total_steps >= hyperps['max_steps']):
           break
     
@@ -1082,11 +976,6 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sa
     wandb.save(save_dir+'final_sac_c2_model.tar')
 
     return sac_agent
-
-
-
-
-  
 
 
 def only_train(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./'):
@@ -1259,6 +1148,130 @@ class CriticDataset(Dataset):
 
 
 
+def behavior_cloning(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
+
+    #memory = BasicBuffer(hyperps['maxmem'])
+
+    wandb.init(config=hyperps)
+
+    print('Batch size: {}'.format(hyperps['batch_size']))
+
+    batch_size = hyperps['batch_size']
+    
+    sac_agent = SAC(env, obs_state, num_actions, hyperps, device)
+
+    wandb.watch(sac_agent.actor)
+    wandb.watch(sac_agent.critic1)
+    wandb.watch(sac_agent.critic2)
+
+    wall_start = time.time()
+
+    total_steps = 0
+    updates = 0
+
+    critic_net = sac_agent.critic1
+    policy_net = sac_agent.actor
+
+
+    files = glob.glob('./human_samples/' + '*.npz')
+
+    files_train, files_val, files_unseen = files[0:int(len(files)*0.7)], files[int(len(files)*0.7):int(len(files)*0.9)], files[int(len(files)*0.9):len(files)]
+
+
+
+    policy_dataset = PolicyDataset(files_train, batch_size, device)
+
+    critic_dataset = CriticDataset(files_train, batch_size, device)
+
+
+    #import pudb; pudb.set_trace()
+
+
+    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=batch_size, num_workers=4)
+
+    epochs = 100
+
+
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
+
+    for epoch in range(epochs):
+
+        train_loss = 0
+
+        for batch_idx, data in enumerate(train_loader):
+            #data = load_batch(batch_idx, True)
+            #import pudb; pudb.set_trace()
+            data_img, data_img_aug = data[0][0]
+            data_img = data_img.squeeze(1)
+
+            data_action = data[1][0]
+
+            optimizer.zero_grad()
+
+            #import pudb; pudb.set_trace()
+
+            mean, log_std = policy_net((data_img, data_img_aug))
+            
+            log_std = torch.tanh(log_std)
+            log_std = hyperps['log_std_min'] + 0.5 * (hyperps['log_std_max'] - hyperps['log_std_min']) * (log_std + 1)
+
+            std = log_std.exp()
+            normal = Normal(mean, std)
+    
+            x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+            y_t = torch.tanh(x_t)
+
+            pol_action = y_t * hyperps['action_scale'] + hyperps['action_bias']
+            
+            
+            #log_prob = normal.log_prob(x_t)
+            
+            # Enforcing Action Bound
+
+            #log_prob = log_prob - torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
+            #log_prob = log_prob.sum(1, keepdim=True)
+
+            #mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
+
+            #outputs = torch.cat(mu, log_std, dim=1)
+
+            loss = criterion(pol_action, data_action)
+            loss.backward()
+            train_loss += loss.item()
+            optimizer.step()
+
+            if(batch_idx != 0 and batch_idx % log_step == 0):
+                print('Epoch: {}, Train Loss: {}, this batch_loss : {}'.format(epoch, train_loss, loss.item()))
+
+        if(epoch != 0 and epoch % 5 == 0):
+            print('Saving')
+            torch.save({
+                'steps': total_steps,
+                'model_state_dict': sac_agent.actor.state_dict(),
+                }, save_dir+'sac_model_{}_bl.tar'.format(total_steps))
+
+            wandb.save(save_dir+'sac_model_{}_bl.tar'.format(total_steps))
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.actor.state_dict(),
+            }, save_dir+'bc_final_sac_model.tar')
+
+    torch.save({
+            'steps': total_steps,
+            'model_state_dict': sac_agent.critic1.state_dict(),
+            }, save_dir+'bc_final_sac_c1_model.tar')
+
+
+    wandb.save(save_dir+'bc_final_sac_model.tar')
+    wandb.save(save_dir+'bc_final_sac_c1_model.tar')
+
+
+    return sac_agent
+
+
+
 
 def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
 
@@ -1407,9 +1420,7 @@ def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"
 
             action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
 
-            q1, q2, msg1, msg2 = sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)
-
-            all_q_vals.append(min(q1, q2).cpu().item())
+            all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
 
@@ -1536,212 +1547,3 @@ def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"
 
 
     return sac_agent
-
-
-
-
-def behavior_cloning(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
-    #memory = BasicBuffer(hyperps['maxmem'])
-
-    print('Running Behaviour Cloning')
-    wandb.init(config=hyperps, force=True)
-
-    mem_max_size = hyperps['maxmem']
-    mem_start_thr = 0.1
-    mem_train_thr = 0.125
-
-    memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
-
-    if(sample_buffer != None):
-      memory = sample_buffer
-
-
-
-    print('Batch size: {}'.format(hyperps['batch_size']))
-    
-    env = CarlaGymEnv.CarEnv(rank, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=True)
-    env.lock = lock
-
-    sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
-
-    sac_agent.shared_msg_buff = shared_msg_buff
-
-    wandb.watch(sac_agent.actor)
-    wandb.watch(sac_agent.critic1)
-    wandb.watch(sac_agent.critic2)
-
-    wall_start = time.time()
-
-    total_steps = 0
-    updates = 0
-
-    critic_net = sac_agent.critic1
-    policy_net = sac_agent.actor
-
-
-    files = glob.glob('./human_samples/' + '*.npz')
-
-    files_train, files_val, files_unseen = files[0:int(len(files)*0.7)], files[int(len(files)*0.7):int(len(files)*0.9)], files[int(len(files)*0.9):len(files)]
-
-
-
-    policy_dataset = PolicyDataset(files_train, batch_size, device)
-
-    critic_dataset = CriticDataset(files_train, batch_size, device)
-
-
-    #import pudb; pudb.set_trace()
-
-
-    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=batch_size, num_workers=4)
-
-    epochs = 100
-
-
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
-
-    for epoch in range(epochs):
-
-        train_loss = 0
-
-        for batch_idx, data in enumerate(train_loader):
-            #data = load_batch(batch_idx, True)
-            #import pudb; pudb.set_trace()
-            data_img, data_img_aug = data[0][0]
-            data_img = data_img.squeeze(1)
-
-            data_action = data[1][0]
-
-            optimizer.zero_grad()
-
-            #import pudb; pudb.set_trace()
-
-            mean, log_std = policy_net((data_img, data_img_aug))
-            
-            log_std = torch.tanh(log_std)
-            log_std = hyperps['log_std_min'] + 0.5 * (hyperps['log_std_max'] - hyperps['log_std_min']) * (log_std + 1)
-
-            std = log_std.exp()
-            normal = Normal(mean, std)
-    
-            x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
-            y_t = torch.tanh(x_t)
-
-            pol_action = y_t * hyperps['action_scale'] + hyperps['action_bias']
-            
-            
-            #log_prob = normal.log_prob(x_t)
-            
-            # Enforcing Action Bound
-
-            #log_prob = log_prob - torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
-            #log_prob = log_prob.sum(1, keepdim=True)
-
-            #mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
-
-            #outputs = torch.cat(mu, log_std, dim=1)
-
-            loss = criterion(pol_action, data_action)
-            loss.backward()
-            train_loss += loss.item()
-            optimizer.step()
-
-            if(batch_idx != 0 and batch_idx % log_step == 0):
-                print('Epoch: {}, Train Loss: {}, this batch_loss : {}'.format(epoch, train_loss, loss.item()))
-
-        if(epoch != 0 and epoch % 5 == 0):
-            print('Saving')
-            torch.save({
-                'steps': total_steps,
-                'model_state_dict': sac_agent.actor.state_dict(),
-                }, save_dir+'sac_model_{}_bl.tar'.format(total_steps))
-
-            wandb.save(save_dir+'sac_model_{}_bl.tar'.format(total_steps))
-
-    torch.save({
-            'steps': total_steps,
-            'model_state_dict': sac_agent.actor.state_dict(),
-            }, save_dir+'bc_final_sac_model.tar')
-
-    torch.save({
-            'steps': total_steps,
-            'model_state_dict': sac_agent.critic1.state_dict(),
-            }, save_dir+'bc_final_sac_c1_model.tar')
-
-
-    wandb.save(save_dir+'bc_final_sac_model.tar')
-    wandb.save(save_dir+'bc_final_sac_c1_model.tar')
-
-
-    return sac_agent
-
-
-
-
-
-def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/', double_phase=False):
-  # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
-  # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
-  mp.set_start_method('spawn')
-  #env0 = #, distl=True)
-  #env1 = CarlaGymEnv.CarEnv(1, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False)#, distl=True)
-
-  shared_actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
-  shared_optim = SharedAdam(shared_actor.parameters())
-
-  #mem_max_size = hyperps['maxmem']
-  #mem_start_thr = 0.1
-  #mem_train_thr = 0.2
-
-  #memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
-
-  lock = Lock()
-
-  #env0.lock = lock
-  #env1.lock = lock
-
-  num_processes = 2
-
-  shared_msg_list = mp.Manager().list()
-
-  empt_msg = torch.zeros(1, 32).float()
-
-  for i in range(num_processes):
-    shared_msg_list.append(empt_msg)
-
-  processes = []
-
-  #run_sac(env, hyperps, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
-  if(not double_phase):
-    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list))
-    p1.start(); processes.append(p1)
-    time.sleep(15)
-    
-    p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list))
-    p2.start(); processes.append(p2)
-    time.sleep(15)
-  
-  else:
-
-    # Behaviour Cloning
-
-    # bc(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
-    policy_nets = behavior_cloning()
-
-
-    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list))
-    p1.start(); processes.append(p1)
-    time.sleep(15)
-    
-    p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list))
-    p2.start(); processes.append(p2)
-    time.sleep(15)
-
-
-  for p in processes:
-    p.join()
-  
-  
-
-
