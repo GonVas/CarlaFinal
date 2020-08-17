@@ -1183,7 +1183,7 @@ class CarEnv:
         
         if(sim_fps != 0):
             self.delta_seconds = 1.0 / sim_fps
-            self.delta_seconds = 0.1
+            self.delta_seconds = 0.05
             self.frame = self.world.apply_settings(carla.WorldSettings(no_rendering_mode=False, synchronous_mode=True, fixed_delta_seconds=self.delta_seconds))
 
         self.blueprint_library = self.world.get_blueprint_library()
@@ -1377,7 +1377,7 @@ class CarEnv:
 
         lidar.set_attribute('channels',str(32))
         lidar.set_attribute('points_per_second',str(100000))
-        lidar.set_attribute('rotation_frequency',str(10))
+        lidar.set_attribute('rotation_frequency',str(20))
         lidar.set_attribute('range',str(50))
         lidar.set_attribute('upper_fov',str(10))
         lidar.set_attribute('lower_fov',str(-30))
@@ -2133,7 +2133,7 @@ class CarEnv:
             return reward, done, info
 
 
-    def _step(self, action, continuos=False, skip_frames=3):
+    def _step(self, action, continuos=False, skip_frames=2):
 
         self.step_numb += 1
         self.global_step_numb += 1
@@ -2178,28 +2178,6 @@ class CarEnv:
                 break
 
         return osb, reward, done, info
-
-
-    def step_frame_skipping(self, action, numb_frames=4, continuos=False):
-        final_reward, final_done = 0, False
-
-        frames = []
-
-        obs_i, rw_i, done_i, info = self._step(action, continuos)
-
-        frames.append(obs_i)
-        final_reward += rw_i
-        final_done |= done_i
-
-        for f_i in range(numb_frames - 1):
-            obs_i, rw_i, done_i, info = self._step((action), False)
-
-            frames.append(obs_i)
-            final_reward += rw_i
-            final_done |= done_i
-
-
-        return frames, final_reward, final_done, info
 
 
     def step_only_image(self, action, continuos=False):

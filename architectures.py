@@ -256,6 +256,8 @@ class ResNetRLGRU(nn.Module):
         x = x.reshape(-1, self.lin_state_size)
 
 
+        if(x.shape[0] != hidden.shape[0]):
+          hidden = hidden[0:x.shape[0]]
 
         #msg_in_flat = torch.zeros(aditional_flat.shape[0], self.msg_dim).float()
 
@@ -272,8 +274,11 @@ class ResNetRLGRU(nn.Module):
                 #msg_in = msg_in.repeat(hidden.shape[0], 1)
                 msg_in = torch.zeros(hidden.shape[0], self.msg_dim).float()
 
+        #print(hidden.shape)
+       #print(aditional_flat.shape)
+        #print(msg_in.shape)
 
-        x_aug = torch.cat((x, aditional_flat, msg_in), dim=1)
+        x_aug = torch.cat((x, aditional_flat, msg_in.to(x.device)), dim=1)
 
 
         x_aug = F.relu(self.fc1(x_aug))
@@ -376,7 +381,7 @@ class ResNetRLGRUCritic(ResNetRLGRU):
 
         action_flat = action.reshape(-1, 2)
 
-        #import pudb; pudb.set_trace()
+        
 
         msg_in_flat = torch.zeros(action_flat.shape[0], self.msg_dim).float()
 

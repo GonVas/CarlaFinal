@@ -1267,7 +1267,7 @@ class CriticDataset(Dataset):
 
 
 
-def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
+def double_phase(env, obs_state, num_actions, hyperps, wandb=None, device=torch.device("cpu"), load_dir='./', log_step=10, save_dir='./'):
 
 
     wandb.init(config=hyperps)
@@ -1320,7 +1320,7 @@ def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"
 
             data_action = data[1][0]
 
-            optimizer.zero_grad()
+            
 
             #import pudb; pudb.set_trace()
 
@@ -1338,10 +1338,15 @@ def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"
             pol_action = y_t * hyperps['action_scale'] + hyperps['action_bias']
 
             loss = criterion(pol_action, data_action.to(device))
+            optimizer.zero_grad()
             loss.backward()
-            train_loss += loss.item()
             optimizer.step()
 
+            print('Mean : ' + str(mean))
+            print('Loss : ' + str(loss))
+
+
+            train_loss += loss.item()
             old_hidden = hidden #hidden.detach()
 
             if(batch_idx != 0 and batch_idx % log_step == 0):
@@ -1547,18 +1552,22 @@ def double_phase(env, obs_state, num_actions, hyperps, device=torch.device("cpu"
 
 
 
-def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
+def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), to_wandb=False, render=True, metrified=True, save_dir='./', load_buffer_dir='./disk_buffer/', human_samples='./human_samples_lidar/'):
     #memory = BasicBuffer(hyperps['maxmem'])
 
     print('Running Behaviour Cloning')
     #wandb.init(config=hyperps, force=True)
 
-    print('Batch size: {}'.format(hyperps['batch_size']))
+    print('Batch size: {}'.format(hyperps['bl_batch_size']))
     
-    env = CarlaGymEnv.CarEnv(rank, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=True)
-    env.lock = lock
+    #env = CarlaGymEnv.CarEnv(rank, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=True)
+    #env.lock = lock
 
-    sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
+    #import pudb; pudb.set_trace()
+
+    env_act_shape = (2, 1)
+
+    sac_agent = SAC(rank, env_act_shape, hyperps, device)
 
     sac_agent.shared_msg_buff = shared_msg_buff
 
@@ -1570,100 +1579,123 @@ def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, d
     critic_net = sac_agent.critic1
     policy_net = sac_agent.actor
 
-
-    files = glob.glob('./human_samples/' + '*.npz')
-
-
-    files_train, files_val, files_unseen = files[0:int(len(files)*0.7)], files[int(len(files)*0.7):int(len(files)*0.9)], files[int(len(files)*0.9):len(files)]
+    if(to_wandb):
+      wandb.watch(policy_net)
 
 
-    policy_dataset = PolicyDataset(files_train, hyperps['batch_size'], device)
+    files_train = glob.glob(human_samples + '*.npz')
 
-    critic_dataset = CriticDataset(files_train, hyperps['batch_size'], device)
-    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=hyperps['batch_size'], num_workers=4)
 
-    epochs = 1
+    #files_train, files_val, files_unseen = files[0:int(len(files)*0.7)], files[int(len(files)*0.7):int(len(files)*0.9)], files[int(len(files)*0.9):len(files)]
 
-    print('Training on {} human samples, testing/validating on {} samples. Max {} epochs.'.format(len(files_train), len(files_val), epochs))
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
+    policy_dataset = PolicyDataset(files_train, hyperps['bl_batch_size'], device)
+
+    critic_dataset = CriticDataset(files_train, hyperps['bl_batch_size'], device)
+    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=hyperps['bl_batch_size'], num_workers=4)
+
+    epochs = 20_000
+
+    #print('Training on {} human samples, testing/validating on {} samples. Max {} epochs.'.format(len(files_train), len(files_val), epochs))
+
+    print('Training on {} human samples. Max {} epochs.'.format(len(files_train), epochs))
+
+
+    criterion = nn.SmoothL1Loss()
+    optimizer = optim.Adam(policy_net.parameters(), lr=0.0001)
 
     for epoch in range(epochs):
 
         train_loss = 0
-        old_hidden = torch.zeros(hyperps['batch_size'], 256).to(device)
+        old_hidden = torch.zeros(hyperps['bl_batch_size'], 256).to(device)
 
-        print('Going fro another epocshj')
+        print('Going fo another Epoch')
+
+        if(to_wandb):
+          wandb.log({'train_loss':train_loss})
+          wandb.log({'epoch':epoch})
 
         for batch_idx, data in enumerate(train_loader):
             #data = load_batch(batch_idx, True)
+
+
             #import pudb; pudb.set_trace()
+
             data_img, data_img_aug = data[0][0]
             data_img = data_img.squeeze(1)
 
             data_action = data[1][0]
 
-            optimizer.zero_grad()
+            mean, log_std, hidden, _ = policy_net((data_img.to(device), data_img_aug.to(device), old_hidden.to(device)))
+            
+            #log_std = torch.log(torch.ones_like(log_std)*0.1).to(device)
 
-            mean, log_std, hidden, _ = policy_net((data_img, data_img_aug, old_hidden))
- 
+
             std = log_std.exp()
+            #std = torch.clamp(std, 0.05, 0.5)
+
             normal = Normal(mean, std)
             x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
             y_t = torch.tanh(x_t)
             pol_action = y_t * hyperps['action_scale'] + hyperps['action_bias']
-            log_prob = normal.log_prob(x_t)
+            #log_prob = normal.log_prob(x_t)
 
             # Enforcing Action Bound
-            log_prob -= torch.log(hyperps['action_scale'] * (1 - y_t.pow(2)) + hyperps['epsilon'])
-            log_prob = log_prob.sum(1, keepdim=True)
+            #log_prob -= torch.log(hyperps['action_scale'] * (1 - y_t.pow(2)) + hyperps['epsilon'])
+            #log_prob = log_prob.sum(1, keepdim=True)
 
-            mean = torch.tanh(mean) * hyperps['action_scale'] + hyperps['action_bias']
+            #mean = torch.tanh(mean) * hyperps['action_scale'] + hyperps['action_bias']
+
+            loss = criterion(pol_action, data_action.to(device))
+            loss += torch.abs((std - torch.ones_like(std)*0.2)).mean() + torch.abs((std[:, 0] - std[:, 1])).mean()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+
+            #print('Mean : ' + str(mean))
+            #print('Loss : ' + str(loss))
+
 
             entropy = normal.entropy()
             entropy1, entropy2 = entropy[0][0].item(), entropy[0][1].item()
 
-            loss = criterion(pol_action, data_action)
-            loss.backward()
-            train_loss += loss.item()
-            optimizer.step()
-
-
-            if(batch_idx > 15):
-              break
-
-
             if(batch_idx != 0 and batch_idx % 10 == 0):
-              print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2))
+              print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}, action_ex_1:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2, pol_action[0][0].item(), pol_action[0][1].item()))
+              if(to_wandb):
+                wandb.log({'mean':mean.cpu(), 'std':std[0][0].item(), 'entropy1':entropy1, 'entropy2':entropy2, 'action_ex_1_0':pol_action[0][0].item(), 'action_ex_1_1':pol_action[0][1].item()})
 
+            train_loss += loss.item()
             old_hidden = hidden
 
             if(batch_idx != 0 and batch_idx % 2 == 0):
                 print('Epoch: {}, Train Loss: {}, this batch_loss : {}'.format(epoch, train_loss, loss.item()))
 
 
-        if(epoch != 0 and epoch % 5 == 0):
+
+        if(to_wandb):
+          wandb.log({'train_loss':train_loss})
+          wandb.log({'epoch':epoch})
+
+
+        print('Ended Epoch')
+        if(epoch != 0 and epoch % 250 == 0):
             print('Saving')
             torch.save({
                 'steps': total_steps,
                 'model_state_dict': sac_agent.actor.state_dict(),
-                }, save_dir+'sac_model_{}_bl.tar'.format(total_steps))
+                }, save_dir+'sac_model_{}_bl.tar'.format(epoch))
 
-            #wandb.save(save_dir+'sac_model_{}_bl.tar'.format(total_steps))
+            if(to_wandb):
+              wandb.save(save_dir+'sac_model_{}_bl.tar'.format(epoch))
 
     torch.save({
             'steps': total_steps,
             'model_state_dict': sac_agent.actor.state_dict(),
             }, save_dir+'bc_final_sac_model.tar')
 
-    torch.save({
-            'steps': total_steps,
-            'model_state_dict': sac_agent.critic1.state_dict(),
-            }, save_dir+'bc_final_sac_c1_model.tar')
-
-
-    #wandb.save(save_dir+'bc_final_sac_model.tar')
+    if(to_wandb):
+      wandb.save(save_dir+'bc_final_sac_model.tar')
     #wandb.save(save_dir+'bc_final_sac_c1_model.tar')
 
 
@@ -1673,7 +1705,7 @@ def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, d
 
 
 
-def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/', double_phase=False):
+def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False):
   # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
   # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
   mp.set_start_method('spawn')
@@ -1722,23 +1754,25 @@ def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=Tru
     print('Behaviour Cloning + RL SAC Dist')
     # shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buf
     
-    sac_bcl_agent = behavior_cloning(0, lock, hyperps, shared_msg_list)
+    wandb.init(config=hyperps, force=True)
+
+    sac_bcl_agent = behavior_cloning(0, lock, hyperps, shared_msg_list, device=device, to_wandb=True, save_dir=save_dir, human_samples=human_samples)
 
     #sac_bcl_agent.actor.share_memory_()
     print('Finished behaviour Cloning going for RL')
 
     #rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None
-    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
-    p1.start(); processes.append(p1)
-    time.sleep(15)
+    #p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
+    #p1.start(); processes.append(p1)
+    #time.sleep(15)
     
-    p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
-    p2.start(); processes.append(p2)
-    time.sleep(15)
+    #p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
+    #p2.start(); processes.append(p2)
+    #time.sleep(15)
 
 
-  for p in processes:
-    p.join()
+  #for p in processes:
+  #  p.join()
   
   
 

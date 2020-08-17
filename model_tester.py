@@ -34,7 +34,7 @@ import cv2
 from PIL import Image, ImageDraw
 
 import wandb
-from architectures_singular import ResNetRLGRU, ResNetRLGRUCritic
+from architectures import ResNetRLGRU, ResNetRLGRUCritic
 
 # default `log_dir` 
 
@@ -133,23 +133,37 @@ class SAC():
 
   def sample(self, obs):
 
-    mean, log_std, hidden = self.actor.forward(obs)
+    mean, log_std, hidden, msg = self.actor.forward(obs)
+    
+    print('Mean : ' + str(mean))
 
-    std = log_std.exp() / 2
+    std = log_std.exp()
+    std = torch.clamp(std, 0.01, 0.1)
+    #print('Clamped')
     normal = Normal(mean, std)
     x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
     y_t = torch.tanh(x_t)
     action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
     log_prob = normal.log_prob(x_t)
+
     # Enforcing Action Bound
     log_prob -= torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
     log_prob = log_prob.sum(1, keepdim=True)
 
     mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
 
-    #entropy = normal.entropy()
+    entropy = normal.entropy()
+    entropy1, entropy2 = entropy[0][0].item(), entropy[0][1].item()
 
-    return action, log_prob, mean, std, hidden
+    #print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2))
+    return action, log_prob, mean, std, hidden, msg
+
+
+
+
+
+
+
 
 
   def load_models(self, files):
@@ -402,7 +416,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     #import pudb; pudb.set_trace()
     
     #load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
-    load_files = ['/home/gonvas/Programming/carlaFinal/sac_lidar_model_160000.tar', '/home/gonvas/Programming/carlaFinal/sac_lidar_c1_model_160000.tar', '/home/gonvas/Programming/carlaFinal/sac_lidar_c2_model_160000.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_50_bl.tar', '/home/gonvas/Programming/carlaFinal/bc_final_sac_c1_model.tar', '/home/gonvas/Programming/carlaFinal/bc_final_sac_c2_model.tar']
 
     sac_agent = SAC(0, env.action_space.shape, hyperps, device)
 
@@ -458,9 +472,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             sac_agent.eval()
 
-            action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+            action, log_prob, mean, std, hidden, _ = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
 
-            all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
+            #all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
 

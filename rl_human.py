@@ -657,17 +657,17 @@ class HumanAgent():
 
 
 
-def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./human_samples/'):
+def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./human_samples/', to_save=True):
 
 
     env.reset()
     human_agent = HumanAgent(env, obs_state, num_actions, hyperps, device)
 
-    save_dir = './human_samples/'
+    save_dir = './human_samples_lidar/'
 
     wall_start = time.time()
 
-    total_steps = 0
+    total_steps = 1195
     updates = 0
 
     log_reward = []
@@ -685,7 +685,8 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
     to_plot = []
 
     #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
-    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 5, 1, 1, 2
+    
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 1, 1, 1, 5
 
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
     change_rate = 0.1
@@ -742,24 +743,26 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
             #all_stds.append([std.cpu().detach().numpy()[0][0], std.cpu().detach().numpy()[0][1]])
 
 
-            done |= total_steps == hyperps['max_steps']
+            
 
-            with open(save_dir+'trans_{}.npz'.format(total_steps), 'wb') as f:
-                #np.savez(f, )
-                #np.savez(f, action)
-                #np.savez(f, np.asarray(reward))
-                #np.savez(f, obs[0])
-                #np.savez(f, obs[1])
-                #np.savez(f, np.asarray(done))
-                if(info != None): #{'scen_sucess':1, 'scen_metric':-1}
-                    #np.savez(f, np.asarray([info['scen_sucess'], info['scen_metric']]))
-                    print(info)
-                    #np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([info['scen_sucess'], info['scen_metric']]))
-                else:
-                    #np.savez(f, np.asarray([0, 0]))
-                    
-                    pass
-                    #np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([0, 0]))
+
+            if(to_save):
+                with open(save_dir+'trans_{}.npz'.format(total_steps), 'wb') as f:
+                    #np.savez(f, )
+                    #np.savez(f, action)
+                    #np.savez(f, np.asarray(reward))
+                    #np.savez(f, obs[0])
+                    #np.savez(f, obs[1])
+                    #np.savez(f, np.asarray(done))
+                    if(info != None): #{'scen_sucess':1, 'scen_metric':-1}
+                        #np.savez(f, np.asarray([info['scen_sucess'], info['scen_metric']]))
+                        print(info)
+                        np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([info['scen_sucess'], info['scen_metric']]))
+                    else:
+                        #np.savez(f, np.asarray([0, 0]))
+                        
+                        pass
+                        np.savez(f, (old_obs[0]*255).astype(np.uint8), old_obs[1], action, np.asarray(reward), (obs[0]*255).astype(np.uint8), obs[1], np.asarray(done), np.asarray([0, 0]))
 
 
             #obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
@@ -787,6 +790,8 @@ def run_human_gathering(env, obs_state, num_actions, hyperps, device=torch.devic
                     all_scenario_wins_rewards.append(-1)
 
                 break
+
+            done |= total_steps == hyperps['max_steps']
 
 
 """

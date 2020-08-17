@@ -192,18 +192,20 @@ def run():
 
     save_dir = './'
     load_buffer_dir = './diskbuffer/'
-
+    human_samples = './human_samples_lidar/'
 
     if(args.production):
         #args.batch_size = 4
         total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
-        args.batch_size = int((total_mem_mb - 3000)/260)
+        #args.batch_size = int((total_mem_mb - 3000)/260)
+        args.batch_size = 256
         args.epochs = 2_000_000 if args.epochs == 0 else args.epochs 
         args.maxram = 16
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
         hyperps['max_steps'] = 2_000_000
         save_dir = './nvme/'
         load_buffer_dir = './nvme/diskbuffer/'
+        human_samples = './nvme/human_samples_lidar/'
 
         if not os.path.exists('./nvme/'):
             os.makedirs('./nvme/')
@@ -217,7 +219,7 @@ def run():
         args.maxram = 5
         args.no_cuda = False
         hyperps['maxmem'] = 500
-        hyperps['max_steps'] = 550
+        hyperps['max_steps'] = 17_500
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -239,6 +241,7 @@ def run():
     hyperps['hidden'] = 256
     hyperps['rnn_steps'] = 4
     hyperps['batch_size'] = args.batch_size
+    hyperps['bl_batch_size'] = args.batch_size
     hyperps['start_steps'] = args.batch_size*3
 
     hyperps['updates_per_step'] = 1
@@ -275,12 +278,12 @@ def run():
     #final_nn = sac_simple_channel.run_sac(env, hyperps, None, None, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
     
 
-    final_nn = sac_simple_channel.run_sac_dist(hyperps, double_phase=True)
+    final_nn = sac_simple_channel.run_sac_dist(hyperps, human_samples=human_samples, save_dir=save_dir, double_phase=True)
 
 
     #env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
     #final_nn = singular_rl.run_sac(env, ((300, 900), 3), 2, hyperps, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
-    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps, double_phase=True)
+    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
 

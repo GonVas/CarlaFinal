@@ -42,10 +42,13 @@ RUN rm -r wandb
 
 #CMD /bin/bash train_vae.sh
 
+COPY ./*.py ./
+
 COPY sac_simple_channel.py .
 COPY main.py .
 COPY architectures.py .
 COPY CarlaGymEnv.py .
+
 
 ENV WANDB_API_KEY 4b3486db7da0dff72366b5e2b6b791ae41ae3b9f
 ENV WANDB_ENTITY gonvas
@@ -53,4 +56,12 @@ ENV WANDB_PROJECT carlaFinal
 
 RUN /home/carla/.local/bin/wandb on
 
-CMD ./CarlaUE4.sh -opengl & sleep 15 && python3 main.py --production
+#CMD ./CarlaUE4.sh -opengl & sleep 15 && python3 main.py --production
+
+CMD python3 main.py --production
+
+
+#gpulab-cli submit --project=av-training < job_trainsac.json 
+#sudo docker run -it --gpus all gonvas/carlarlrunner:latest /bin/bash
+#sudo docker push gonvas/carlarlrunner:latest
+#sudo docker build -f runningDockerfile -t gonvas/carlarlrunner:latest .
