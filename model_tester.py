@@ -413,10 +413,10 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     #print('Batch size: {}'.format(hyperps['batch_size']))
 
-    #import pudb; pudb.set_trace()
+    import pudb; pudb.set_trace()
     
     #load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
-    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_50_bl.tar', '/home/gonvas/Programming/carlaFinal/bc_final_sac_c1_model.tar', '/home/gonvas/Programming/carlaFinal/bc_final_sac_c2_model.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_1000_bl.tar.tar', '/home/gonvas/Programming/carlaFinal/bc_final_sac_c1_model.tar', '/home/gonvas/Programming/carlaFinal/bc_final_sac_c2_model.tar']
 
     sac_agent = SAC(0, env.action_space.shape, hyperps, device)
 
