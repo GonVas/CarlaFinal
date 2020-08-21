@@ -414,8 +414,6 @@ def resnet101(in_channels, n_classes):
 
 
 
-
-
 if __name__ == "__main__":
     
     from torchsummary import summary

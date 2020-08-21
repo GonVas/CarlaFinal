@@ -858,6 +858,16 @@ def get_saliency(obs, model, action, std, device):
     cv2.waitKey(1)
 
 
+def load_nets(from_net, to_net):
+    actor_params1 = from_net.named_parameters()
+    actor_params2 = to_net.named_parameters()
+
+    dict_params2 = dict(actor_params2)
+
+    for name1, param1 in actor_params1:
+        if name1 in dict_params2:
+          dict_params2[name1].data.copy_(param1.data)
+
 
 def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
     # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
@@ -887,7 +897,27 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
     sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
 
     if(pre_trained_model != None):
-      sac_agent.actor = pre_trained_model
+      #sac_agent.actor.pre_trained_model[0]
+      #sac_agent.critic1 = pre_trained_model[1]
+      """
+      actor_params1 = pre_trained_model[0].named_parameters()
+      actor_params2 = sac_agent.actor.named_parameters()
+
+      dict_params2 = dict(actor_params2)
+
+      for name1, param1 in actor_params1:
+          if name1 in dict_params2:
+            dict_params2[name1].data.copy_(param1.data)
+      """
+
+      load_nets(pre_trained_model[0], sac_agent.actor)
+      load_nets(pre_trained_model[1], sac_agent.critic1)
+      load_nets(pre_trained_model[1], sac_agent.critic2)
+      load_nets(pre_trained_model[1], sac_agent.targ_critic1)
+      load_nets(pre_trained_model[1], sac_agent.targ_critic2)
+
+      print('Loaded In SAC given policy and critics')
+
 
 
     sac_agent.shared_msg_buff = shared_msg_buff
@@ -1705,7 +1735,7 @@ def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, d
 
 
 
-def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False):
+def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False, load=False):
   # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
   # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
   mp.set_start_method('spawn')
@@ -1756,23 +1786,44 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
     
     wandb.init(config=hyperps, force=True)
 
-    sac_bcl_agent = behavior_cloning(0, lock, hyperps, shared_msg_list, device=device, to_wandb=True, save_dir=save_dir, human_samples=human_samples)
+    #import pudb; pudb.set_trace()
+
+    sac_pol_net = None
+    sac_critic_net = None
+
+    if(load == False):
+      sac_bcl_agent = behavior_cloning(0, lock, hyperps, shared_msg_list, device=device, to_wandb=True, save_dir=save_dir, human_samples=human_samples)
+      sac_pol_net = sac_bcl_agent.policy
+      sac_critic_net = sac_bcl_agent.critic
+    else:
+      load = '/home/gonvas/Programming/carlaFinal/sac_model_1000_bl.tar'
+      #sac_agent_ex = SAC(-1, (2, 1), hyperps, device)
+      sac_pol_net = ResNetRLGRU(3, 2, 12).to(device)
+      sac_pol_net.load_state_dict(torch.load(load)['model_state_dict'])
+
+      sac_critic_net = ResNetRLGRUCritic(3, 2, 12).to(device)
+
+      sac_critic_net.encoder.load_state_dict(sac_pol_net.encoder.state_dict())
+      sac_critic_net.avg.load_state_dict(sac_pol_net.avg.state_dict())
+      sac_critic_net.msg_lin.load_state_dict(sac_pol_net.msg_lin.state_dict())
+
+      
 
     #sac_bcl_agent.actor.share_memory_()
     print('Finished behaviour Cloning going for RL')
 
     #rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None
-    #p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
-    #p1.start(); processes.append(p1)
-    #time.sleep(15)
+    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net)))
+    p1.start(); processes.append(p1)
+    time.sleep(15)
     
-    #p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list, sac_bcl_agent.actor))
+    #p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net)))
     #p2.start(); processes.append(p2)
     #time.sleep(15)
 
 
-  #for p in processes:
-  #  p.join()
+  for p in processes:
+    p.join()
   
   
 
