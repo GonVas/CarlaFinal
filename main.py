@@ -198,9 +198,9 @@ def run():
         #args.batch_size = 4
         total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
         #args.batch_size = int((total_mem_mb - 3000)/260)
-        args.batch_size = 256
+        args.batch_size = 40
         args.epochs = 2_000_000 if args.epochs == 0 else args.epochs 
-        args.maxram = 16
+        args.maxram = 8
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
         hyperps['max_steps'] = 2_000_000
         save_dir = './nvme/'
@@ -266,7 +266,7 @@ def run():
     os.environ['WANDB_API_KEY'] = "4b3486db7da0dff72366b5e2b6b791ae41ae3b9f"
 
 
-    env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
+    #env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
     
     #env = CarlaGymEnv.CarEnvScenario(0)
 
@@ -278,7 +278,7 @@ def run():
     #final_nn = sac_simple_channel.run_sac(env, hyperps, None, None, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
     
 
-    final_nn = sac_simple_channel.run_sac_dist(hyperps, human_samples=human_samples, save_dir=save_dir, double_phase=True, load=True)
+    final_nn = sac_simple_channel.run_sac_dist(hyperps, human_samples=human_samples, save_dir=save_dir, double_phase=True, load=True, load_buffer_dir=load_buffer_dir)
 
 
     #env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):

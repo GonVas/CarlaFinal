@@ -48,6 +48,7 @@ COPY sac_simple_channel.py .
 COPY main.py .
 COPY architectures.py .
 COPY CarlaGymEnv.py .
+COPY sac_model_5000_bl.tar .
 
 
 ENV WANDB_API_KEY 4b3486db7da0dff72366b5e2b6b791ae41ae3b9f
@@ -56,9 +57,9 @@ ENV WANDB_PROJECT carlaFinal
 
 RUN /home/carla/.local/bin/wandb on
 
-#CMD ./CarlaUE4.sh -opengl & sleep 15 && python3 main.py --production
+CMD ./CarlaUE4.sh -opengl & sleep 15 && python3 main.py --production
 
-CMD python3 main.py --production
+#CMD python3 main.py --production
 
 
 #gpulab-cli submit --project=av-training < job_trainsac.json 

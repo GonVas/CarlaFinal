@@ -2,12 +2,12 @@
 
 {
     "name": "CarlaSAC",
-    "description": "Trains carla Final SAC RL and LIDAR, test gpumem",
+    "description": "Trains carla Final SAC RL and LIDAR, Distributed Only 2 agents, using 5000 behavoir cloning net.",
     "request": {
         "resources": {
             "cpus": 8,
             "gpus": 1,
-            "cpuMemoryGb": 16,
+            "cpuMemoryGb": 34,
             "clusterId": 6
         },
         "docker": {

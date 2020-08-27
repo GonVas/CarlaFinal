@@ -383,10 +383,10 @@ class ResNetRLGRUCritic(ResNetRLGRU):
 
         
 
-        msg_in_flat = torch.zeros(action_flat.shape[0], self.msg_dim).float()
+        msg_in_flat = torch.zeros(action_flat.shape[0], self.msg_dim).float().to(x.device)
 
         if(msg_in != None):
-            msg_in_flat = msg_in.reshape(-1, self.msg_dim)
+            msg_in_flat = msg_in.reshape(-1, self.msg_dim).to(x.device)
 
 
         x_aug = torch.cat((x, aditional_flat, action_flat, msg_in_flat), dim=1)

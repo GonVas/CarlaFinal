@@ -621,15 +621,21 @@ class SAC():
 
     final_msg = torch.zeros(1, self.actor.msg_dim).float().to(self.device)
 
+    #import pudb; pudb.set_trace()
+
+
+    self.lock.acquire()
+          
     for msg in self.shared_msg_buff:
-      final_msg += msg
+      final_msg += msg.to(self.device)
 
     final_msg = final_msg/len(self.shared_msg_buff)
 
     mean, log_std, hidden, msg = self.actor.forward(obs, final_msg)
 
-    self.shared_msg_buff[self.rank] = msg.detach().mean(dim=0)
+    self.shared_msg_buff[self.rank] = msg.mean(dim=0).detach().clone().cpu()
 
+    self.lock.release()
     return mean, log_std, hidden, msg.detach()
 
 
@@ -876,8 +882,8 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
     wandb.init(config=hyperps, force=True)
 
     mem_max_size = hyperps['maxmem']
-    mem_start_thr = 0.1
-    mem_train_thr = 0.125
+    mem_start_thr = 0.01
+    mem_train_thr = 0.0125
 
     memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
 
@@ -895,28 +901,8 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
 
     
     sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
+    sac_agent.lock = lock
 
-    if(pre_trained_model != None):
-      #sac_agent.actor.pre_trained_model[0]
-      #sac_agent.critic1 = pre_trained_model[1]
-      """
-      actor_params1 = pre_trained_model[0].named_parameters()
-      actor_params2 = sac_agent.actor.named_parameters()
-
-      dict_params2 = dict(actor_params2)
-
-      for name1, param1 in actor_params1:
-          if name1 in dict_params2:
-            dict_params2[name1].data.copy_(param1.data)
-      """
-
-      load_nets(pre_trained_model[0], sac_agent.actor)
-      load_nets(pre_trained_model[1], sac_agent.critic1)
-      load_nets(pre_trained_model[1], sac_agent.critic2)
-      load_nets(pre_trained_model[1], sac_agent.targ_critic1)
-      load_nets(pre_trained_model[1], sac_agent.targ_critic2)
-
-      print('Loaded In SAC given policy and critics')
 
 
 
@@ -975,7 +961,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
             if(len(memory) < mem_max_size*mem_start_thr):
                 action = torch.rand(1, 2).to(device) * 4 - 2
                 log_prob, mean, std, hidden = torch.FloatTensor([[2.7]]), action, torch.FloatTensor([[0.5, 0.5]]), old_hidden
-                print('Memory not at {:3.3f}%, action random {}'.format(mem_start_thr*100, action))
+                #print('Memory not at {:3.3f}%, action random {}'.format(mem_start_thr*100, action))
             else:
                 action, log_prob, mean, std, hidden, _ = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
             
@@ -1021,7 +1007,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
 
             memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
 
-            metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
+            #metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
 
             old_obs = obs
             old_hidden = hidden
@@ -1054,10 +1040,11 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
                 #cuda_mem_before_train.close()
                 
                 sac_agent.train()
-                print('Going to train, len of mem: {}'.format(len(memory)))
-
-                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, shared_model, shared_optim, expert_data)
                 
+                #import pudb; pudb.set_trace()
+                
+                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, shared_model, shared_optim, expert_data)
+                print('Trained, len of mem: {}'.format(len(memory)))
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
 
                 updates += 1
@@ -1330,7 +1317,7 @@ def double_phase(env, obs_state, num_actions, hyperps, wandb=None, device=torch.
 
     critic_dataset = CriticDataset(files_train, batch_size, device)
 
-    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=batch_size, num_workers=4)
+    train_loader = torch.utils.data.DataLoader(policy_dataset, batch_size=batch_size, num_workers=2)
 
     epochs = 2
 
@@ -1735,7 +1722,7 @@ def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, d
 
 
 
-def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False, load=False):
+def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False, load=False, load_buffer_dir='./diskbuffer/'):
   # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
   # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
   mp.set_start_method('spawn')
@@ -1784,7 +1771,7 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
     print('Behaviour Cloning + RL SAC Dist')
     # shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buf
     
-    wandb.init(config=hyperps, force=True)
+    #wandb.init(config=hyperps, force=True)
 
     #import pudb; pudb.set_trace()
 
@@ -1796,7 +1783,7 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
       sac_pol_net = sac_bcl_agent.policy
       sac_critic_net = sac_bcl_agent.critic
     else:
-      load = '/home/gonvas/Programming/carlaFinal/sac_model_1000_bl.tar'
+      load = './sac_model_5000_bl.tar'
       #sac_agent_ex = SAC(-1, (2, 1), hyperps, device)
       sac_pol_net = ResNetRLGRU(3, 2, 12).to(device)
       sac_pol_net.load_state_dict(torch.load(load)['model_state_dict'])
@@ -1813,13 +1800,18 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
     print('Finished behaviour Cloning going for RL')
 
     #rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None
-    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net)))
+    #(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None, sample_buffer=None, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
+
+    p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net), None, device, False, False, save_dir, load_buffer_dir))
     p1.start(); processes.append(p1)
     time.sleep(15)
+
+    #import pudb; pudb.set_trace()
+    #run_sac(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net), device=device)
     
-    #p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net)))
-    #p2.start(); processes.append(p2)
-    #time.sleep(15)
+    p2 = mp.Process(target=run_sac, args=(1, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net), None, device, False, False, save_dir, load_buffer_dir))
+    p2.start(); processes.append(p2)
+    time.sleep(15)
 
 
   for p in processes:
