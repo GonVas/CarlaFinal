@@ -879,7 +879,13 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
     # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
     # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
     print('Running SAC')
-    wandb.init(config=hyperps, force=True)
+    #wandb.init(config=hyperps, force=True, reinit=True, project="gpulab")
+    #import wandb
+
+
+    os.environ['WANDB_MODE'] = 'run'
+    wandb.init(config=hyperps, project="gpulab")
+
 
     mem_max_size = hyperps['maxmem']
     mem_start_thr = 0.01
@@ -1015,6 +1021,8 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
             total_steps += 1
             log_reward.append(reward)
 
+            
+
             if done:
                 print('In SAC Done: {}, step : {}, epoch: {}'.format(len(memory), step_numb, epi))
 
@@ -1104,6 +1112,8 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
     wandb.save(save_dir+'final_sac_model.tar')
     wandb.save(save_dir+'final_sac_c1_model.tar')
     wandb.save(save_dir+'final_sac_c2_model.tar')
+
+    wandb.join()
 
     return sac_agent
 
@@ -1771,7 +1781,7 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
     print('Behaviour Cloning + RL SAC Dist')
     # shared_msg_buff, sample_buffer=None, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buf
     
-    #wandb.init(config=hyperps, force=True)
+    #wandb.init(config=hyperps, force=True, project="gpulab")
 
     #import pudb; pudb.set_trace()
 

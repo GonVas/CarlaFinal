@@ -203,6 +203,9 @@ def run():
         args.maxram = 8
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
         hyperps['max_steps'] = 2_000_000
+
+        os.environ['WANDB_MODE'] = 'run'
+
         save_dir = './nvme/'
         load_buffer_dir = './nvme/diskbuffer/'
         human_samples = './nvme/human_samples_lidar/'
@@ -220,6 +223,7 @@ def run():
         args.no_cuda = False
         hyperps['maxmem'] = 500
         hyperps['max_steps'] = 17_500
+        os.environ['WANDB_MODE'] = 'run'
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 

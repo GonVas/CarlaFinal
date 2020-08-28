@@ -7,7 +7,7 @@
         "resources": {
             "cpus": 8,
             "gpus": 1,
-            "cpuMemoryGb": 34,
+            "cpuMemoryGb": 42,
             "clusterId": 6
         },
         "docker": {
