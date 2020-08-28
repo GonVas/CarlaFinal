@@ -1168,6 +1168,7 @@ class CarEnv:
         
         self.change_weather_step = 100
 
+        self.benchmark = benchmark
         self.select_benchmarks(benchmark)
 
         self.sparse = sparse
@@ -1439,9 +1440,14 @@ class CarEnv:
         self.collision_hist = []
         self.actor_list = []
 
-        self.transform, self.destination = random.sample(self.world.get_map().get_spawn_points(), 2)
 
-        self.init_pos, self.destination = self.transform.location, self.destination.location
+
+        if(self.benchmark == 'Simple'):
+            self.init_pos, self.init_rot, self.destination = self.init_dest_waypoint_get(self)
+            self.transform = carla.Transform(self.init_pos, self.init_rot)
+        else:
+            self.transform, self.destination = random.sample(self.world.get_map().get_spawn_points(), 2)
+            self.init_pos, self.destination = self.transform.location, self.destination.location
 
         self.destination = carla.Location(x=0, y=0, z=0) # Make all cars go to (0,0,0)
 
@@ -1602,6 +1608,20 @@ class CarEnv:
             return  init_pos, init_rot, destination
 
 
+        def simple_waypoint_pos(env):
+            #import pudb; pudb.set_trace()
+            transform = env.world.get_map().get_spawn_points()[7]
+
+            #for idx, sp in enumerate(env.world.get_map().get_spawn_points()):
+            #    print('IDX: {:d}, X: {:2.2f}, Y: {:2.2f}, Z: {:2.2f}'.format(idx, sp.location.x, sp.location.y, sp.location.z))
+
+            init_pos = transform.location
+            init_rot = transform.rotation
+            #init_rot = carla.Rotation(0, 180, 0)
+            destination = carla.Location(x=0, y=0, z=0) # Make all cars go to (0,0,0)
+            return  init_pos, init_rot, destination
+
+
         def std_benchmark_step_hook(env):
             #print('On STD benchmark hook')
             #print(env.env_episode_numb)
@@ -1614,6 +1634,10 @@ class CarEnv:
         if(benchmark == 'STDFixed'):
             self.benchmakr_step_hook = std_benchmark_step_hook
             self.init_dest_waypoint_get = stdfixed_waypoints_pos
+
+        if(benchmark == 'Simple'):
+            self.benchmakr_step_hook = std_benchmark_step_hook
+            self.init_dest_waypoint_get = simple_waypoint_pos
 
 
     def collision_data(self, event):
@@ -2099,7 +2123,8 @@ class CarEnv:
 
         if(bench_done):
             print('Benchmark Done, Final reward {}'.format(bench_rew))
-            return bench_rew, True, {'scen_sucess':1, 'scen_metric':bench_rew}
+            final_rew_list = [0, 0, 0, 0, 0, 0, bench_rew]
+            return final_rew_list, True, {'scen_sucess':1, 'scen_metric':bench_rew}
 
 
         way_reward = self.calc_waypoints_reward()
