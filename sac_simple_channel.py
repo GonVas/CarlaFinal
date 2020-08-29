@@ -349,7 +349,7 @@ class DiskBuffer:
       self.seq = 0
       print('Created folder {}, for disk buffer use, max exps: {}'.format(self.dir_name, max_size))
 
-  def push(self, state, hidden, action, reward, next_hidden, next_state, done):
+  def push(self, state, hidden, action, reward, next_hidden, next_state, done, msg_buffer):
       #experience = (state, hidden, action, np.array([reward]), next_hidden, next_state, done)
       #import pudb; pudb.set_trace()
 
@@ -360,7 +360,7 @@ class DiskBuffer:
       next_image_aug_np = np.asarray(next_state[1])
 
       with open(self.dir_name + '/exp_{}.npz'.format(self.seq), 'wb') as f:
-        np.savez(f, image_np, image_aug_np, hidden.to("cpu").detach().numpy(), action.to("cpu").detach().numpy(), np.array([reward]), next_hidden.to("cpu").detach().numpy(), next_image_np, next_image_aug_np, done)
+        np.savez(f, image_np, image_aug_np, hidden.to("cpu").detach().numpy(), action.to("cpu").detach().numpy(), np.array([reward]), next_hidden.to("cpu").detach().numpy(), next_image_np, next_image_aug_np, done, msg_buffer)
         self.buffer.append(self.dir_name + '/exp_{}.npz'.format(self.seq))
         self.seq += 1
 
@@ -373,12 +373,13 @@ class DiskBuffer:
       done_batch = []
       hidden_batch = []
       next_hidden_batch = []
+      msg_buffer_batchs = []
 
       batch = random.sample(self.buffer, batch_size)
       
       for experience_file in batch:
-          data = np.load(experience_file)
-          image_ts, image_aug_ts, hidden, action, reward, next_hidden, next_image_ts, next_image_aug_ts, done = data.values()
+          data = np.load(experience_file, allow_pickle=True)
+          image_ts, image_aug_ts, hidden, action, reward, next_hidden, next_image_ts, next_image_aug_ts, done, msg_buff = data.values()
 
           state_batch.append((torch.FloatTensor(image_ts)/255, torch.FloatTensor(image_aug_ts)))
           action_batch.append(torch.FloatTensor(action))
@@ -387,14 +388,15 @@ class DiskBuffer:
           done_batch.append(done)
           hidden_batch.append(torch.FloatTensor(hidden))
           next_hidden_batch.append(torch.FloatTensor(next_hidden))
+          msg_buffer_batchs.append(torch.FloatTensor(msg_buff))
 
-      return (state_batch, hidden_batch, action_batch, reward_batch, next_hidden_batch, next_state_batch, done_batch)
+      return (state_batch, hidden_batch, action_batch, reward_batch, next_hidden_batch, next_state_batch, done_batch, msg_buffer_batchs)
 
 
 
       #import pudb; pudb.set_trace()
 
-      return (state_batch, hidden_batch, action_batch, reward_batch, next_hidden_batch, next_state_batch, done_batch)
+      return (state_batch, hidden_batch, action_batch, reward_batch, next_hidden_batch, next_state_batch, done_batch, msg_buffer_batchs)
 
   def __len__(self):
       return len(self.buffer)
@@ -663,6 +665,55 @@ class SAC():
     return action, log_prob, mean, std, hidden, msg
 
 
+
+
+  def actor_msg_forward_with_buffer(self, obs, msg_buffer):
+
+    final_msg = torch.zeros(msg_buffer[0].shape[0], self.actor.msg_dim).float().to(self.device)
+
+    #import pudb; pudb.set_trace()
+
+
+    #self.lock.acquire()
+    
+    for msg in msg_buffer:
+      final_msg += msg.to(self.device)
+
+    final_msg = final_msg/len(msg_buffer)
+
+    mean, log_std, hidden, msg = self.actor.forward(obs, final_msg)
+
+    #self.shared_msg_buff[self.rank] = msg.mean(dim=0).detach().clone().cpu()
+
+    #self.lock.release()
+    return mean, log_std, hidden, msg.detach()
+
+
+
+  def sample_with_buffer(self, obs, msg_buffer):
+
+    mean, log_std, hidden, msg = self.actor_msg_forward_with_buffer(obs, msg_buffer)
+    
+    std = log_std.exp()
+    normal = Normal(mean, std)
+    x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+    y_t = torch.tanh(x_t)
+    action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
+    log_prob = normal.log_prob(x_t)
+
+    # Enforcing Action Bound
+    log_prob -= torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
+    log_prob = log_prob.sum(1, keepdim=True)
+
+    mean = torch.tanh(mean) * self.hyperps['action_scale'] + self.hyperps['action_bias']
+
+    entropy = normal.entropy()
+    entropy1, entropy2 = entropy[0][0].item(), entropy[0][1].item()
+
+    #print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2))
+    return action, log_prob, mean, std, hidden, msg
+
+
   def prob_action(self, obs, action_to_calc):
     # returns probability given policy -> π(action|obs)
 
@@ -736,7 +787,7 @@ class SAC():
 
         with torch.autograd.set_detect_anomaly(True):
 
-            mem_state_batch, mem_first_hidden_batch, mem_action_batch, mem_reward_batch, mem_next_hidden_batch, mem_next_state_batch, mem_mask_batch = memory.sample(batch_size)
+            mem_state_batch, mem_first_hidden_batch, mem_action_batch, mem_reward_batch, mem_next_hidden_batch, mem_next_state_batch, mem_mask_batch, msg_buffer_batch = memory.sample(batch_size)
             #import pudb; pudb.set_trace()
             mem_states_obs_batch, mem_states_aug_batch = zip(*mem_state_batch)
             mem_next_states_obs_batch, mem_next_states_aug_batch = zip(*mem_next_state_batch)
@@ -762,7 +813,7 @@ class SAC():
 
             with torch.no_grad():
                 #import pudb; pudb.set_trace()
-                next_state_action, next_state_log_pi, _, _, next_hidden, _ = self.sample((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch))
+                next_state_action, next_state_log_pi, _, _, next_hidden, _ = self.sample_with_buffer((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch), msg_buffer_batch)
                 qf1_next_target, qf2_next_target, targ_ms1, targ_ms2 = self.critic_target((next_next_state_obs_batch, next_next_state_aug_batch, next_mem_batch), next_state_action)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
                 next_q_value = reward_batch + mask_batch * gamma * (min_qf_next_target)
@@ -785,7 +836,7 @@ class SAC():
             qf_loss.backward()
             self.critic_optim.step()
 
-            pi, log_pi, _, _, _, _ = self.sample((state_obs_batch, state_aug_batch, first_hidden_batch))
+            pi, log_pi, _, _, _, _ = self.sample_with_buffer((state_obs_batch, state_aug_batch, first_hidden_batch), msg_buffer_batch)
 
             qf1_pi, qf2_pi, c1_ms1, c2_ms2 = self.critic((state_obs_batch, state_aug_batch, first_hidden_batch), pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
@@ -910,8 +961,6 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
     sac_agent.lock = lock
 
 
-
-
     sac_agent.shared_msg_buff = shared_msg_buff
 
     wandb.watch(sac_agent.actor)
@@ -948,6 +997,8 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
 
     done = False
 
+    msg_buffer_copy = None
+
     for epi in range(hyperps['max_epochs']):
 
         obs = env.reset()
@@ -964,14 +1015,12 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
             action, log_prob, mean, std, hidden = None, None, None, None, None
             sac_agent.eval()
             
-            if(len(memory) < mem_max_size*mem_start_thr):
-                action = torch.rand(1, 2).to(device) * 4 - 2
-                log_prob, mean, std, hidden = torch.FloatTensor([[2.7]]), action, torch.FloatTensor([[0.5, 0.5]]), old_hidden
-                #print('Memory not at {:3.3f}%, action random {}'.format(mem_start_thr*100, action))
-            else:
-                action, log_prob, mean, std, hidden, _ = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+
+            action, log_prob, mean, std, hidden, _ = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+
             
-            
+            #import pudb; pudb.set_trace()
+            msg_buffer_copy = np.stack([elem.detach().numpy().astype(np.float32) for elem in sac_agent.shared_msg_buff[:]]).astype(np.float32)
 
             q1, q2, msg1, msg2 = sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)
 
@@ -1011,7 +1060,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
 
             obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
 
-            memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done)
+            memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done, msg_buffer_copy)
 
             #metrify(obs, total_steps, wall_start, np.asarray(all_actions), np.asarray(all_pol_stats), np.asarray(all_stds), np.asarray(all_means), np.asarray(all_rewards), np.asarray(all_scenario_wins_rewards), np.asarray(all_final_rewards), np.asarray(all_q_vals), to_plot)
 
@@ -1086,7 +1135,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
             if(total_steps >= hyperps['max_steps']):
               break
             
-        if(epi % 3 == 0):
+        if(epi % 5 == 0):
           print('Syncyng Shared Model')
           sac_agent.actor.load_state_dict(shared_model.state_dict())
 
@@ -1732,7 +1781,7 @@ def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, d
 
 
 
-def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False, load=False, load_buffer_dir='./diskbuffer/'):
+def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False, load=False, load_buffer_dir='./diskbuffer/'):
   # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
   # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
   mp.set_start_method('spawn')
@@ -1753,11 +1802,11 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
   #env0.lock = lock
   #env1.lock = lock
 
-  num_processes = 2
+  num_processes = 3
 
   shared_msg_list = mp.Manager().list()
 
-  empt_msg = torch.zeros(1, 32).float()
+  empt_msg = torch.zeros(32).float()
 
   for i in range(num_processes):
     shared_msg_list.append(empt_msg)
@@ -1811,6 +1860,7 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
 
     #rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None
     #(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pre_trained_model=None, sample_buffer=None, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
+
 
     p1 = mp.Process(target=run_sac, args=(0, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net), None, device, False, False, save_dir, load_buffer_dir))
     p1.start(); processes.append(p1)
