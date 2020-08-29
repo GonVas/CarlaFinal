@@ -1781,7 +1781,7 @@ def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, d
 
 
 
-def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False, load=False, load_buffer_dir='./diskbuffer/'):
+def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=True, save_dir='./', human_samples='./human_samples_lidar/', double_phase=False, load=False, load_buffer_dir='./diskbuffer/'):
   # Possible improvements: pre calc gamma of samples, sample weight on loss, curriculum learning, more tweaks to hyperparams :/
   # also add auto batch by cuda mem, attention maybe doubt, model based, vq-vae2
   mp.set_start_method('spawn')
@@ -1790,6 +1790,8 @@ def run_sac_dist(hyperps, device=torch.device("cpu"), render=True, metrified=Tru
 
   shared_actor = ResNetRLGRU(3, 2, 12).to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
   shared_optim = SharedAdam(shared_actor.parameters())
+
+  print('Running Dist SAC')
 
   #mem_max_size = hyperps['maxmem']
   #mem_start_thr = 0.1
