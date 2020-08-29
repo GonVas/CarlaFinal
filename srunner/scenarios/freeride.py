@@ -36,10 +36,12 @@ class FreeRide(BasicScenario):
                                        debug_mode,
                                        criteria_enable=criteria_enable)
 
+
     def _setup_scenario_trigger(self, config):
         """
         """
         return None
+
 
     def _create_behavior(self):
         """
@@ -47,6 +49,7 @@ class FreeRide(BasicScenario):
         sequence = py_trees.composites.Sequence("Sequence Behavior")
         sequence.add_child(Idle())
         return sequence
+
 
     def _create_test_criteria(self):
         """
@@ -60,6 +63,7 @@ class FreeRide(BasicScenario):
             criteria.append(collision_criterion)
 
         return criteria
+
 
     def __del__(self):
         """

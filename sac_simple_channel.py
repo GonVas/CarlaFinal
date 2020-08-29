@@ -1824,6 +1824,12 @@ def run_sac_dist(hyperps, device=torch.device("cuda"), render=True, metrified=Tr
     time.sleep(15)
 
 
+    p3 = mp.Process(target=run_sac, args=(2, lock, hyperps, shared_actor, shared_optim, shared_msg_list, (sac_pol_net, sac_critic_net), None, device, False, False, save_dir, load_buffer_dir))
+    p3.start(); processes.append(p3)
+    time.sleep(15)
+
+
+
   for p in processes:
     p.join()
   

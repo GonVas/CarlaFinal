@@ -1879,12 +1879,16 @@ class CarEnv:
 
     def cal_time_reward(self, max_steps=1000):
 
-        #done = False
+        done = False
 
         #if(self.step_numb >= max_steps or self.episode_start + self.secs_per_episode < time.time()):
         #    done = True
 
         #return self.step_numb/max_steps, done
+
+
+        if(self.episode_start + self.secs_per_episode < time.time()):
+            done = True
 
         return -0.1, False
 

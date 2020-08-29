@@ -2,12 +2,12 @@
 
 {
     "name": "CarlaSAC",
-    "description": "Trains carla Final SAC RL and LIDAR, Distributed Only 2 agents, using 5000 behavoir cloning net.",
+    "description": "Semi-Final Carla Training. 3 Agents, 5000 epoch Behaviour Cloning.",
     "request": {
         "resources": {
-            "cpus": 8,
+            "cpus": 12,
             "gpus": 1,
-            "cpuMemoryGb": 42,
+            "cpuMemoryGb": 64,
             "clusterId": 6
         },
         "docker": {
