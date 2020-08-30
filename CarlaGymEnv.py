@@ -1872,7 +1872,7 @@ class CarEnv:
         reward  = np.clip(kmh, 0, 40)*1.5/cruise_speed
 
         if(kmh < 8):
-            reward = -0.1
+            reward = -0.5
  
         return reward, False
 

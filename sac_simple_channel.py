@@ -500,7 +500,7 @@ class LoadBuffer:
 
 
 class SharedAdam(torch.optim.Adam): # extend a pytorch optimizer so it shares grads across processes
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
+    def __init__(self, params, lr=1e-5, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
         super(SharedAdam, self).__init__(params, lr, betas, eps, weight_decay)
         for group in self.param_groups:
             for p in group['params']:
@@ -575,15 +575,15 @@ class SAC():
 
     if(train):
  
-        self.critic_optim = optim.Adam(list(self.critic1.parameters()) + list(self.critic2.parameters()), lr=self.hyperps['q_lr'])
-        self.policy_optim = optim.Adam(self.actor.parameters(), lr=self.hyperps['q_lr'])
+        self.critic_optim = optim.Adam(list(self.critic1.parameters()) + list(self.critic2.parameters()), lr=1e-5)
+        self.policy_optim = optim.Adam(self.actor.parameters(), lr=1e-5)
 
         # entropy temperature
         self.alpha = self.hyperps['alpha']
         #self.target_entropy = -torch.prod(torch.Tensor(self.env.action_space.shape).to(self.device)).item()
         self.target_entropy = -torch.prod(torch.Tensor(self.env_action_shape).to(self.device)).item()
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
-        self.alpha_optim = optim.Adam([self.log_alpha], lr=self.hyperps['a_lr'])
+        self.alpha_optim = optim.Adam([self.log_alpha], lr=1e-5)
         
     else:
         self.try_load()
@@ -844,20 +844,10 @@ class SAC():
 
             policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean() # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
 
-            #self.policy_optim.zero_grad()
-            #policy_loss.backward()
-            #self.policy_optim.step()
 
-
-            shared_optimizer.zero_grad()
+            self.policy_optimizer.zero_grad()
             policy_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 40)
-        
-            for param, shared_param in zip(self.actor.parameters(), shared_model.parameters()):
-              if shared_param.grad is None: shared_param._grad = param.grad # sync gradients with shared model
-            shared_optimizer.step()
-
-
+            self.policy_optimizer.step()
 
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
 
@@ -1100,7 +1090,12 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
                 
                 #import pudb; pudb.set_trace()
                 
+                sac_agent.lock.acquire()
+
                 critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, shared_model, shared_optim, expert_data)
+                
+                sac_agent.lock.release()
+
                 print('Trained, len of mem: {}'.format(len(memory)))
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
 
@@ -1381,7 +1376,7 @@ def double_phase(env, obs_state, num_actions, hyperps, wandb=None, device=torch.
     epochs = 2
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
+    optimizer = optim.Adam(policy_net.parameters(), lr=1e-5)
 
     for epoch in range(epochs):
 
@@ -1678,7 +1673,7 @@ def behavior_cloning(rank, lock, hyperps, shared_msg_buff, sample_buffer=None, d
 
 
     criterion = nn.SmoothL1Loss()
-    optimizer = optim.Adam(policy_net.parameters(), lr=0.0001)
+    optimizer = optim.Adam(policy_net.parameters(), lr=3e-4)
 
     for epoch in range(epochs):
 
