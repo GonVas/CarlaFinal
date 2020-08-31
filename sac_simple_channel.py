@@ -842,12 +842,23 @@ class SAC():
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
 
+
             policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean() # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
 
+            #self.policy_optim.zero_grad()
+            #policy_loss.backward()
+            #self.policy_optim.step()
 
-            self.policy_optimizer.zero_grad()
+
+            shared_optimizer.zero_grad()
             policy_loss.backward()
-            self.policy_optimizer.step()
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 40)
+        
+            for param, shared_param in zip(self.actor.parameters(), shared_model.parameters()):
+              if shared_param.grad is None: shared_param._grad = param.grad # sync gradients with shared model
+            shared_optimizer.step()
+
+
 
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
 

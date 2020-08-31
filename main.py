@@ -21,6 +21,7 @@ import sac_simple_channel
 import rl_human
 import model_tester
 import singular_rl
+import sac_simple
 #import sac_complete
 #from algos import sac, random_agent, DQN_carla, policy_grads, reinforce, sac_mem, sac_a3c_dist, a3c, data_gatherer
 #from algos.models.cnn_vae import VAE, load_last_model, vae_train
@@ -281,7 +282,8 @@ def run():
     #final_nn = sac_simple_channel.run_sac(env, hyperps, None, None, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
     
 
-    final_nn = sac_simple_channel.run_sac_dist(hyperps, human_samples=human_samples, save_dir=save_dir, double_phase=True, load=True, load_buffer_dir=load_buffer_dir)
+    #final_nn = sac_simple_channel.run_sac_dist(hyperps, human_samples=human_samples, save_dir=save_dir, double_phase=True, load=True, load_buffer_dir=load_buffer_dir)
+
 
 
     #env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
@@ -290,6 +292,9 @@ def run():
     #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
+
+    #(hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir='./diskbuffer/')
+    final_nn = sac_simple.run_sac(hyperps)
 
 
 if __name__ == '__main__':

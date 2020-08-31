@@ -48,6 +48,9 @@ COPY sac_simple_channel.py .
 COPY main.py .
 COPY architectures.py .
 COPY CarlaGymEnv.py .
+COPY sac_simple.py .
+COPY architectures_no_msg.py .
+
 COPY sac_model_5000_bl.tar .
 
 

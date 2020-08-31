@@ -52,7 +52,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 
 
-from architectures import ResNetRLGRU, ResNetRLGRUCritic
+from architectures_no_msg import ResNetRLGRU, ResNetRLGRUCritic
 
 
 import CarlaGymEnv
@@ -164,9 +164,15 @@ class BasicBuffer:
 
 
 
+def soft_update(target, source, tau):
+    for target_param, param in zip(target.parameters(), source.parameters()):
+        target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
+
+
+
 class SAC():
 
-  def __init__(self, rank, env_action_shape, hyperps, device, train=True):
+  def __init__(self, env_action_shape, hyperps, device, train=True):
 
     self.hyperps = hyperps
     self.env_action_shape = env_action_shape
@@ -332,7 +338,7 @@ class SAC():
         print('\nFinal SAC saved model\n')
 
 
-  def update(self, memory, updates, shared_model, shared_optimizer, expert_data=False):
+  def update(self, memory, updates, expert_data=False):
         batch_size=self.hyperps['batch_size']
         gamma=self.hyperps['gamma']
         tau=self.hyperps['tau']
@@ -385,21 +391,15 @@ class SAC():
 
             pi, log_pi, _, _, _ = self.sample((state_obs_batch, state_aug_batch, first_hidden_batch))
 
-            qf1_pi, qf2_pi, c1_ms1, c2_ms2 = self.critic((state_obs_batch, state_aug_batch, first_hidden_batch), pi)
+            qf1_pi, qf2_pi = self.critic((state_obs_batch, state_aug_batch, first_hidden_batch), pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
 
             policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean() # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
 
-            #self.policy_optim.zero_grad()
-            #policy_loss.backward()
-            #self.policy_optim.step()
-
-
-            shared_optimizer.zero_grad()
+            self.policy_optim.zero_grad()
             policy_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 40)
-
+            self.policy_optim.step()
 
 
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
@@ -430,8 +430,9 @@ class SAC():
 
 
 
-def run_sac(rank, hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir='./diskbuffer/'):
+def run_sac(hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir='./diskbuffer/'):
 
+    
     print('Running SAC Simple, no bl no multiagent')
 
     os.environ['WANDB_MODE'] = 'run'
@@ -444,16 +445,12 @@ def run_sac(rank, hyperps, device=torch.device("cpu"), save_dir='./', load_buffe
 
     memory = DiskBuffer(mem_max_size, filedir=load_buffer_dir)
 
-    if(sample_buffer != None):
-      memory = sample_buffer
-
-
     print('Batch size: {}'.format(hyperps['batch_size']))
     
-    env = CarlaGymEnv.CarEnv(rank, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=False)
+    env = CarlaGymEnv.CarEnv(0, render=False, step_type="other", benchmark="Simple", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=False)
 
 
-    sac_agent = SAC(rank, env.action_space.shape, hyperps, device)
+    sac_agent = SAC(env.action_space.shape, hyperps, device)
 
 
     wandb.watch(sac_agent.actor)
@@ -465,8 +462,6 @@ def run_sac(rank, hyperps, device=torch.device("cpu"), save_dir='./', load_buffe
     total_steps = 0
     updates = 0
 
-    log_reward = []
-    
     all_actions = []
     all_pol_stats = []
     all_stds = []
@@ -491,8 +486,6 @@ def run_sac(rank, hyperps, device=torch.device("cpu"), save_dir='./', load_buffe
     for epi in range(hyperps['max_epochs']):
 
         obs = env.reset()
-
-        print('Len of memory buffer: {}'.format(len(memory)))
         
         old_obs = (torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device), torch.FloatTensor(obs[1]).to(device))
         
@@ -504,8 +497,7 @@ def run_sac(rank, hyperps, device=torch.device("cpu"), save_dir='./', load_buffe
             action, log_prob, mean, std, hidden = None, None, None, None, None
             sac_agent.eval()
             
-
-            action, log_prob, mean, std, hidden, _ = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+            action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
 
             
             q1, q2 = sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)
@@ -518,9 +510,6 @@ def run_sac(rank, hyperps, device=torch.device("cpu"), save_dir='./', load_buffe
             if(total_steps % 100 == 0):
               print('Final Sum Reward: {:.5f}'.format(reward))
               print('Total steps {}, max_steps: {}'.format(total_steps, hyperps['max_steps']))
-
-
-            all_final_rewards.append(reward)
 
 
             wandb.log({"final_r": reward, 'action':action.cpu(), 'log_prob':log_prob.cpu(), 'mean':mean.cpu(), 'std':std.cpu()})
@@ -560,12 +549,8 @@ def run_sac(rank, hyperps, device=torch.device("cpu"), save_dir='./', load_buffe
             if len(to_train_mem) > hyperps['batch_size']*10 and len(memory) > mem_train_thr*mem_max_size:
                 
                 sac_agent.train()
-                
                 #import pudb; pudb.set_trace()
-
-
-                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, shared_model, shared_optim, expert_data)
-                
+                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, expert_data)
 
                 print('Trained, len of mem: {}'.format(len(memory)))
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
