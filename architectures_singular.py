@@ -16,7 +16,7 @@ from collections import OrderedDict
 
 
 
-# All of this code is done by Francesco Saverio Zuppichini https://github.com/FrancescoSaverioZuppichini/ResNet
+# Some of this code is done by Francesco Saverio Zuppichini https://github.com/FrancescoSaverioZuppichini/ResNet
 # Licensed is MIT
 
 

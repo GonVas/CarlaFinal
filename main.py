@@ -217,7 +217,7 @@ def run():
         if not os.path.exists('./nvme/diskbuffer/'):
             os.makedirs('./nvme/diskbuffer/')
     else:
-        args.batch_size = 3
+        args.batch_size = 2
         # 1650MB cuda for batch 2, 1910 for batch 3, 2130 for batch 4, ~280MB per increase in batch size 
         args.epochs = 130 if args.epochs == 0  else args.epochs 
         args.maxram = 5
@@ -271,7 +271,7 @@ def run():
     os.environ['WANDB_API_KEY'] = "4b3486db7da0dff72366b5e2b6b791ae41ae3b9f"
 
 
-    #env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
+    #env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="Simple", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
     
 
     #final_nn = sac_simple_channel.run_sac_dist(hyperps)
@@ -285,7 +285,6 @@ def run():
     #final_nn = sac_simple_channel.run_sac_dist(hyperps, human_samples=human_samples, save_dir=save_dir, double_phase=True, load=True, load_buffer_dir=load_buffer_dir)
 
 
-
     #env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
     #final_nn = singular_rl.run_sac(env, ((300, 900), 3), 2, hyperps, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
     
@@ -294,7 +293,8 @@ def run():
 
 
     #(hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir='./diskbuffer/')
-    final_nn = sac_simple.run_sac(hyperps)
+    final_nn = sac_simple.run_sac(hyperps, device=torch.device("cuda"))
+
 
 
 if __name__ == '__main__':

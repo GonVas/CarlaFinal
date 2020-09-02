@@ -187,6 +187,14 @@ class SAC():
     self.targ_critic1 = ResNetRLGRUCritic(3, 2, 12).to(device)
     self.targ_critic2 = ResNetRLGRUCritic(3, 2, 12).to(device)
 
+    self.scaler = torch.cuda.amp.GradScaler()
+    #self.policy_scaler = GradScaler()
+    #self.alpha_scaler = GradScaler()
+
+
+    self.avg_propgation_time = [0, 1]
+
+
     print('Before params copy')
 
     params1 = self.critic1.named_parameters()
@@ -383,11 +391,32 @@ class SAC():
             qf2_loss = F.mse_loss(qf2, next_q_value * is_cs)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
             qf_loss = qf1_loss + qf2_loss 
  
-            #print('is_cs : {}'.format(is_cs))
+
+            """
+            scaler.scale(loss).backward()
+
+            # scaler.step() first unscales the gradients of the optimizer's assigned params.
+            # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
+            # otherwise, optimizer.step() is skipped.
+            scaler.step(optimizer)
+
+            # Updates the scale for next iteration.
+            scaler.update()
+            """
+
+            start_propag = int(round(time.time() * 1000))
+            total_propag_time = 0
 
             self.critic_optim.zero_grad()
-            qf_loss.backward()
-            self.critic_optim.step()
+
+            self.scaler.scale(qf_loss).backward(retain_graph=True)
+            self.scaler.step(self.critic_optim)
+
+            #qf_loss.backward()
+            #self.critic_optim.step()
+
+            total_propag_time += int(round(time.time() * 1000)) - start_propag 
+
 
             pi, log_pi, _, _, _ = self.sample((state_obs_batch, state_aug_batch, first_hidden_batch))
 
@@ -397,16 +426,38 @@ class SAC():
 
             policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean() # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
 
-            self.policy_optim.zero_grad()
-            policy_loss.backward()
-            self.policy_optim.step()
 
+            start_propag = int(round(time.time() * 1000)) 
+
+            self.policy_optim.zero_grad()
+
+
+            self.scaler.scale(policy_loss).backward(retain_graph=True)
+            self.scaler.step(self.policy_optim)
+            
+            #policy_loss.backward()
+            #self.policy_optim.step()
+
+            total_propag_time += int(round(time.time() * 1000)) - start_propag 
 
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
 
+
+            start_propag = int(round(time.time() * 1000)) 
+
             self.alpha_optim.zero_grad()
-            alpha_loss.backward()
-            self.alpha_optim.step()
+            
+            self.scaler.scale(alpha_loss).backward()
+            self.scaler.step(self.alpha_optim)
+
+
+            #alpha_loss.backward()
+            #self.alpha_optim.step()
+
+            total_propag_time += int(round(time.time() * 1000)) - start_propag 
+
+            self.avg_propgation_time[0] = self.avg_propgation_time[0] + (total_propag_time - self.avg_propgation_time[0]) / self.avg_propgation_time[1]
+            self.avg_propgation_time[1] += 1
 
             self.alpha = self.log_alpha.exp()
             alpha_tlogs = self.alpha.clone() # For TensorboardX logs
@@ -417,6 +468,7 @@ class SAC():
                 soft_update(self.targ_critic2, self.critic2, tau)
 
 
+            self.scaler.update()
             
             return qf1_loss.item(), qf2_loss.item(), policy_loss.item(), alpha_loss.item(), alpha_tlogs.item()
 
@@ -430,7 +482,7 @@ class SAC():
 
 
 
-def run_sac(hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir='./diskbuffer/'):
+def run_sac(hyperps, device=torch.device("cuda"), save_dir='./nvme/', load_buffer_dir='./nvme/diskbuffer/'):
 
     
     print('Running SAC Simple, no bl no multiagent')
@@ -474,7 +526,7 @@ def run_sac(hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir=
 
     to_plot = []
 
-    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 1, 1, 1, 5
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 1, 1, 1, 1, 1, 2
 
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
 
@@ -482,6 +534,8 @@ def run_sac(hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir=
     old_hidden = torch.zeros(1, 256).to(device)
 
     done = False
+
+
 
     for epi in range(hyperps['max_epochs']):
 
@@ -546,13 +600,15 @@ def run_sac(hyperps, device=torch.device("cpu"), save_dir='./', load_buffer_dir=
             expert_data = False
               
 
-            if len(to_train_mem) > hyperps['batch_size']*10 and len(memory) > mem_train_thr*mem_max_size:
+            if len(to_train_mem) > hyperps['batch_size']*5 and len(memory) > mem_train_thr*mem_max_size:
                 
                 sac_agent.train()
                 #import pudb; pudb.set_trace()
                 critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, expert_data)
 
-                print('Trained, len of mem: {}'.format(len(memory)))
+                if(total_steps != 0 and total_steps % 10 == 0):
+                    print('Trained, len of mem: {}'.format(len(memory)))
+                    print('Avg: propagation training time: ' + str(sac_agent.avg_propgation_time))
                 wandb.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss, 'ent_loss':ent_loss, 'alpha':alpha})
 
                 updates += 1

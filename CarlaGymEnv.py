@@ -1886,11 +1886,10 @@ class CarEnv:
 
         #return self.step_numb/max_steps, done
 
-
         if(self.episode_start + self.secs_per_episode < time.time()):
             done = True
 
-        return -0.1, False
+        return -0.1, done
 
 
     def calc_waypoints_reward(self, min_dis=1.2, debug=False):
