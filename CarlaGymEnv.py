@@ -1865,14 +1865,14 @@ class CarEnv:
         #print("Calculated A* route got {:3d} waypoints".format(len(self.route_locs_opts)))
 
 
-    def cal_vel_reward(self, cruise_speed=40):
+    def cal_vel_reward(self, cruise_speed=50):
         v = self.vehicle.get_velocity()
         kmh = int(3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2))
 
-        reward  = np.clip(kmh, 0, 40)*1.5/cruise_speed
+        reward  = np.clip(kmh, 0, 50)*1.5/cruise_speed
 
-        if(kmh < 8):
-            reward = -0.5
+        #if(kmh < 8):
+        #    reward = -0.5
  
         return reward, False
 
@@ -1885,6 +1885,9 @@ class CarEnv:
         #    done = True
 
         #return self.step_numb/max_steps, done
+
+        if(self.episode_start + 2 > time.time()):
+            return 0, False
 
         if(self.episode_start + self.secs_per_episode < time.time()):
             done = True
@@ -1977,6 +1980,39 @@ class CarEnv:
         return reward, False
 
 
+
+    def cal_dis_reward_2(self, max_dis=100):
+
+        new_d_dest = math.sqrt((self.vehicle.get_location().x-self.destination.x)**2 + (self.vehicle.get_location().y-self.destination.y)**2 + (self.vehicle.get_location().z-self.destination.z)**2)
+        
+        if(new_d_dest <= 30):
+            print('Got to the objective')
+            return 10, True
+
+        if(self.step_numb <= 4 ):
+            self.initial_dist = new_d_dest
+            self.last_ddest = new_d_dest
+            return 0, False
+
+
+        dist_to_dest_trav = self.last_ddest - new_d_dest
+
+        #if(dist_to_dest_trav < -0.1): # allow for small backwards movements
+        #    dist_to_dest_trav *= np.clip(self.step_numb, 3, 10)
+
+
+        # dist_to_dest_trav very small val need to pump it
+        reward = dist_to_dest_trav*50/self.initial_dist
+
+
+        
+
+        #print('CARLA GYM: Init_dis {}, Last Dis To Dest :  {}, new dis to dest {}, Distance Reward: {}'.format(self.initial_dist, self.last_ddest, new_d_dest, reward))
+
+        #time.sleep(1.5)
+
+        self.last_ddest = new_d_dest
+        return reward, False
 
 
     def cal_collision_reward(self, debug=False):

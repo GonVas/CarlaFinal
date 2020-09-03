@@ -34,7 +34,7 @@ import cv2
 from PIL import Image, ImageDraw
 
 import wandb
-from architectures import ResNetRLGRU, ResNetRLGRUCritic
+from architectures_singular import ResNetRLGRU, ResNetRLGRUCritic
 
 # default `log_dir` 
 
@@ -133,7 +133,7 @@ class SAC():
 
   def sample(self, obs):
 
-    mean, log_std, hidden, msg = self.actor.forward(obs)
+    mean, log_std, hidden = self.actor.forward(obs)
     
     print('Mean : ' + str(mean))
 
@@ -156,7 +156,7 @@ class SAC():
     entropy1, entropy2 = entropy[0][0].item(), entropy[0][1].item()
 
     #print('Std: {:2.3f}, {:2.3f}, log_std: {:2.3f},{:2.3f}, entropy:{:2.3f}, {:2.3f}'.format(std[0][0].item(),std[0][1].item(), log_std[0][0].item(), log_std[0][1].item(), entropy1, entropy2))
-    return action, log_prob, mean, std, hidden, msg
+    return action, log_prob, mean, std, hidden
 
 
 
@@ -414,11 +414,10 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     #print('Batch size: {}'.format(hyperps['batch_size']))
 
     #import pudb; pudb.set_trace()
-
     env.secs_per_episode = 100
-    
+
     #load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
-    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_20000(1).tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_10000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar']
 
     sac_agent = SAC(0, env.action_space.shape, hyperps, device)
 
@@ -483,7 +482,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
             sac_agent.eval()
 
-            action, log_prob, mean, std, hidden, _ = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
+            print('efwefwefewfwef')
+
+            action, log_prob, mean, std, hidden = sac_agent.sample((old_obs[0], old_obs[1], old_hidden)) 
 
             #all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
@@ -558,4 +559,3 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     return sac_agent
 
- 

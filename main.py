@@ -20,6 +20,7 @@ import CarlaGymEnv
 import sac_simple_channel 
 import rl_human
 import model_tester
+import model_tester_simple
 import singular_rl
 import sac_simple
 #import sac_complete
@@ -199,7 +200,7 @@ def run():
         #args.batch_size = 4
         total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
         #args.batch_size = int((total_mem_mb - 3000)/260)
-        args.batch_size = 40
+        args.batch_size = 75
         args.epochs = 2_000_000 if args.epochs == 0 else args.epochs 
         args.maxram = 8
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
@@ -242,7 +243,7 @@ def run():
     hyperps['q_lr'] = 0.0003
     hyperps['a_lr']= 0.0003
     hyperps['action_scale'] = 2.5
-    hyperps['action_bias'] = 0
+    hyperps['action_bias'] = 0.5
     hyperps['hidden'] = 256
     hyperps['rnn_steps'] = 4
     hyperps['batch_size'] = args.batch_size
@@ -288,7 +289,7 @@ def run():
     #env, obs_state, num_actions, hyperps, device=torch.device("cpu"), render=True, metrified=True, save_dir='./', load_buffer_dir='./human_samples/'):
     #final_nn = singular_rl.run_sac(env, ((300, 900), 3), 2, hyperps, device=device, save_dir=save_dir, load_buffer_dir=load_buffer_dir)
     
-    #final_nn = model_tester.run_sac(env, ((300, 900), 3), 2, hyperps)
+    #final_nn = model_tester_simple.run_sac(env, ((300, 900), 3), 2, hyperps)
     #final_nn = rl_human.run_human_gathering(env, ((300, 900), 3), 2, hyperps)
 
 

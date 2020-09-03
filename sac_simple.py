@@ -409,11 +409,11 @@ class SAC():
 
             self.critic_optim.zero_grad()
 
-            self.scaler.scale(qf_loss).backward(retain_graph=True)
-            self.scaler.step(self.critic_optim)
+            #self.scaler.scale(qf_loss).backward(retain_graph=True)
+            #self.scaler.step(self.critic_optim)
 
-            #qf_loss.backward()
-            #self.critic_optim.step()
+            qf_loss.backward()
+            self.critic_optim.step()
 
             total_propag_time += int(round(time.time() * 1000)) - start_propag 
 
@@ -432,11 +432,11 @@ class SAC():
             self.policy_optim.zero_grad()
 
 
-            self.scaler.scale(policy_loss).backward(retain_graph=True)
-            self.scaler.step(self.policy_optim)
+            #self.scaler.scale(policy_loss).backward(retain_graph=True)
+            #self.scaler.step(self.policy_optim)
             
-            #policy_loss.backward()
-            #self.policy_optim.step()
+            policy_loss.backward()
+            self.policy_optim.step()
 
             total_propag_time += int(round(time.time() * 1000)) - start_propag 
 
@@ -447,12 +447,12 @@ class SAC():
 
             self.alpha_optim.zero_grad()
             
-            self.scaler.scale(alpha_loss).backward()
-            self.scaler.step(self.alpha_optim)
+            #self.scaler.scale(alpha_loss).backward()
+            #self.scaler.step(self.alpha_optim)
 
 
-            #alpha_loss.backward()
-            #self.alpha_optim.step()
+            alpha_loss.backward()
+            self.alpha_optim.step()
 
             total_propag_time += int(round(time.time() * 1000)) - start_propag 
 
@@ -468,7 +468,7 @@ class SAC():
                 soft_update(self.targ_critic2, self.critic2, tau)
 
 
-            self.scaler.update()
+            #self.scaler.update()
             
             return qf1_loss.item(), qf2_loss.item(), policy_loss.item(), alpha_loss.item(), alpha_tlogs.item()
 
@@ -526,7 +526,7 @@ def run_sac(hyperps, device=torch.device("cuda"), save_dir='./nvme/', load_buffe
 
     to_plot = []
 
-    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 1, 1, 1, 1, 1, 2
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 10, 1, 1, 1, 1, 5
 
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
 
