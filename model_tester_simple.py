@@ -417,7 +417,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     env.secs_per_episode = 100
 
     #load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
-    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_10000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_30000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar']
 
     sac_agent = SAC(0, env.action_space.shape, hyperps, device)
 

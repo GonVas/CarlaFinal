@@ -1117,7 +1117,7 @@ class CarEnv:
                     hidden_obs=True,
                     im_width=300,
                     im_height=300,
-                    secs_per_episode=30,
+                    secs_per_episode=45,
                     steer_amt=1.1,
                     auto_reset=True,
                     sparse=False,
@@ -1871,8 +1871,10 @@ class CarEnv:
 
         reward  = np.clip(kmh, 0, 50)*1.5/cruise_speed
 
-        #if(kmh < 8):
-        #    reward = -0.5
+        if(kmh < 8):
+            reward = -0.5
+
+        reward -= abs(self.vehicle.get_angular_velocity().z) / 15
  
         return reward, False
 
@@ -1895,7 +1897,7 @@ class CarEnv:
         return -0.1, done
 
 
-    def calc_waypoints_reward(self, min_dis=1.2, debug=False):
+    def calc_waypoints_reward(self, min_dis=2.5, debug=False):
 
         ## 1-> Left, 2 -> Right , 3 -> Straight, 4 -> LaneFollow, 5 -> ChangeLaneLeft
         reward = 0
@@ -1954,7 +1956,7 @@ class CarEnv:
             print('Got to the objective')
             return 10, True
 
-        if(self.step_numb <= 4 ):
+        if(self.step_numb <= 10 ):
             self.initial_dist = new_d_dest
             self.last_ddest = new_d_dest
             return 0, False
@@ -2184,7 +2186,7 @@ class CarEnv:
                 return 0, False, info
 
         if(d_done):
-            info = {'scen_sucess':1, 'scen_metric':10}
+            info = {'scen_sucess':1, 'scen_metric':100}
 
         if(done == True):
             if(info == None):

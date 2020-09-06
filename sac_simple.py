@@ -220,14 +220,14 @@ class SAC():
 
     if(train):
  
-        self.critic_optim = optim.Adam(list(self.critic1.parameters()) + list(self.critic2.parameters()), lr=1e-4)
-        self.policy_optim = optim.Adam(self.actor.parameters(), lr=1e-4)
+        self.critic_optim = optim.Adam(list(self.critic1.parameters()) + list(self.critic2.parameters()), lr=2e-4)
+        self.policy_optim = optim.Adam(self.actor.parameters(), lr=2e-4)
 
         # entropy temperature
         self.alpha = self.hyperps['alpha']
         self.target_entropy = -torch.prod(torch.Tensor(self.env_action_shape).to(self.device)).item()
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
-        self.alpha_optim = optim.Adam([self.log_alpha], lr=1e-4)
+        self.alpha_optim = optim.Adam([self.log_alpha], lr=2e-4)
         
     else:
         self.try_load()
@@ -270,7 +270,9 @@ class SAC():
     normal = Normal(mean, std)
     x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
     y_t = torch.tanh(x_t)
-    action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
+
+    action = y_t * self.hyperps['action_scale'] #+ self.hyperps['action_bias']
+    action[:, 0] += self.hyperps['action_bias']
     log_prob = normal.log_prob(x_t)
 
     # Enforcing Action Bound
@@ -526,16 +528,20 @@ def run_sac(hyperps, device=torch.device("cuda"), save_dir='./nvme/', load_buffe
 
     to_plot = []
 
-    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 10, 1, 1, 1, 1, 5
+    #w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.010, 1, 10, 1, 1, 10
 
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 4.5, 40, 5, 10, 10, 50
+    #ok 1, 10, 5, 10, 10, 10
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
+
+    wandb.run.summary["reward_weights"] = rewards_weights
 
 
     old_hidden = torch.zeros(1, 256).to(device)
 
     done = False
 
-
+    cumulative_reward = 0
 
     for epi in range(hyperps['max_epochs']):
 
@@ -545,7 +551,10 @@ def run_sac(hyperps, device=torch.device("cuda"), save_dir='./nvme/', load_buffe
         
         total_steps += 1
 
-        print('Epoch: {}, Max Epochs: {}, max steps: {}'.format(epi, hyperps['max_epochs'], hyperps['max_steps']))
+        print('Epoch: {}, Max Epochs: {}, max steps: {}, total_steps: {}, cumulative_reward: {}'.format(epi, hyperps['max_epochs'], hyperps['max_steps'], total_steps, cumulative_reward))
+        
+        cumulative_reward = 0
+
         for step_numb in range(hyperps['max_steps']):
 
             action, log_prob, mean, std, hidden = None, None, None, None, None
@@ -560,6 +569,9 @@ def run_sac(hyperps, device=torch.device("cuda"), save_dir='./nvme/', load_buffe
 
             reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4] + w_waypoint*reward[5])/6
 
+            cumulative_reward += reward
+
+            
 
             if(total_steps % 100 == 0):
               print('Final Sum Reward: {:.5f}'.format(reward))
@@ -613,7 +625,7 @@ def run_sac(hyperps, device=torch.device("cuda"), save_dir='./nvme/', load_buffe
 
                 updates += 1
 
-            if(total_steps != 0 and total_steps % 10_000 == 0):
+            if(updates != 0 and updates % 5_000 == 0):
                 print('Saving')
                 torch.save({
                         'steps': total_steps,
@@ -637,7 +649,10 @@ def run_sac(hyperps, device=torch.device("cuda"), save_dir='./nvme/', load_buffe
 
             if(total_steps >= hyperps['max_steps']):
               break
-            
+        
+        wandb.log({'Episode_Cumulative_Reward' : cumulative_reward, 'epi':epi})
+
+
         if(total_steps >= hyperps['max_steps']):
           break
     
