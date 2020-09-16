@@ -41,7 +41,6 @@ from architectures import ResNetRLGRU, ResNetRLGRUCritic
 
 
 
-
 class SAC():
 
   def __init__(self, rank, env_action_shape, hyperps, device, train=True):
@@ -418,7 +417,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
     env.secs_per_episode = 100
     
     #load_files = ['/home/gonvas/Programming/carlaFinal/bc_final_sac_model.tar', '/home/gonvas/Programming/carlaFinal/sac_c1_model_6000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_6000.tar']
-    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_20000(1).tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar']
+    load_files = ['/home/gonvas/Programming/carlaFinal/sac_model_5000_bl.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar', '/home/gonvas/Programming/carlaFinal/sac_c2_model_20000.tar']
 
     sac_agent = SAC(0, env.action_space.shape, hyperps, device)
 
@@ -469,6 +468,7 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
 
     final_done = False
 
+    ig = VanillaBackprop(sac_agent.actor, torch.device("cpu"))
 
     for epi in range(hyperps['max_epochs']):
         obs = env.reset()
@@ -488,6 +488,9 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             #all_q_vals.append(min(sac_agent.critic((old_obs[0], old_obs[1], old_hidden), action)).cpu().item())
 
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
+
+
+
 
             all_rewards.append(reward)
 
