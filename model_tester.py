@@ -40,6 +40,48 @@ from architectures import ResNetRLGRU, ResNetRLGRUCritic
 
 
 
+class VanillaBackprop():
+    """
+        Produces gradients generated with vanilla back propagation from the image
+    """
+    def __init__(self, model, device):
+        self.model = model
+        self.gradients = None
+        self.device = device
+        # Put model in evaluation mode
+        self.model.eval()
+        # Hook the first layer to get the gradient
+
+
+    def hook_input(self, input_tensor):
+        def hook_function(grad_in):
+            self.gradients = grad_in
+
+        input_tensor.register_hook(hook_function)
+
+
+
+    def generate_gradients(self, input_image, target_output, which=0):
+        # Forward
+
+        #input_aug = torch.zeros(2, 6).detach().requires_grad_(True)
+        input_image = (input_image[0].clone().detach().requires_grad_(True), input_image[1].clone().detach().requires_grad_(True), input_image[2].clone().detach().requires_grad_(True))
+        self.hook_input(input_image[0])
+
+
+        model_output = self.model(input_image)
+        # Zero grads
+        self.model.zero_grad()
+        # Target for backprop
+
+        # Backward pass
+        model_output[0].backward(gradient=model_output[0])
+        # Convert Pytorch variable to numpy array
+        # [0] to get rid of the first channel (1,3,224,224)
+        gradients_as_arr = self.gradients.data.numpy()[0]
+        return gradients_as_arr
+
+
 
 class SAC():
 
@@ -490,6 +532,15 @@ def run_sac(env, obs_state, num_actions, hyperps, device=torch.device("cpu"), re
             obs, reward, done, info = env.step(action.cpu().detach().numpy()[0])
 
 
+            grads = ig.generate_gradients((old_obs[0], old_obs[1], old_hidden), None)
+
+            grads_nm = torch.FloatTensor(grads).permute(1, 2, 0)
+            #import pudb; pudb.set_trace()
+            grads_nm = grads_nm / grads_nm.max()
+            grads_nm = grads_nm*255
+
+            cv2.imshow('Intregated', grads_nm.mean(2).numpy())
+            cv2.waitKey(1)
 
 
             all_rewards.append(reward)

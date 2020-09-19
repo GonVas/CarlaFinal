@@ -187,7 +187,7 @@ class SAC():
     normal = Normal(mean, std)
     x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
     y_t = torch.tanh(x_t)
-    action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
+    action = y_t * self.hyperps['action_scale'] #+ self.hyperps['action_bias']
     log_prob = normal.log_prob(x_t)
 
     # Enforcing Action Bound

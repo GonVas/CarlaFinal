@@ -698,8 +698,11 @@ class SAC():
     normal = Normal(mean, std)
     x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
     y_t = torch.tanh(x_t)
-    action = y_t * self.hyperps['action_scale'] + self.hyperps['action_bias']
+    
+    action = y_t * self.hyperps['action_scale'] #+ self.hyperps['action_bias']
+    action[:, 0] += self.hyperps['action_bias']
     log_prob = normal.log_prob(x_t)
+
 
     # Enforcing Action Bound
     log_prob -= torch.log(self.hyperps['action_scale'] * (1 - y_t.pow(2)) + self.hyperps['epsilon'])
@@ -987,7 +990,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
 
     to_plot = []
 
-    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 1, 1, 1, 5
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 4.5, 40, 5, 10, 10, 50
 
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
     change_rate = 0.1
@@ -1000,6 +1003,8 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
 
     msg_buffer_copy = None
 
+    cumulative_reward = 0
+
     for epi in range(hyperps['max_epochs']):
 
         obs = env.reset()
@@ -1010,7 +1015,10 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
         
         total_steps += 1
 
-        print('Epoch: {}, Max Epochs: {}, max steps: {}'.format(epi, hyperps['max_epochs'], hyperps['max_steps']))
+        print('Epoch: {}, Max Epochs: {}, max steps: {}, total_steps: {}, cumulative_reward: {}'.format(epi, hyperps['max_epochs'], hyperps['max_steps'], total_steps, cumulative_reward))
+        
+        cumulative_reward = 0
+
         for step_numb in range(hyperps['max_steps']):
 
             action, log_prob, mean, std, hidden = None, None, None, None, None
@@ -1040,6 +1048,7 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
 
             reward = (w_vel*reward[0] + w_t*reward[1] + w_dis*reward[2] + w_col*reward[3] + w_lan*reward[4] + w_waypoint*reward[5])/6
 
+            cumulative_reward += reward
 
             if(total_steps % 100 == 0):
               print('Final Sum Reward: {:.5f}'.format(reward))
@@ -1145,8 +1154,14 @@ def run_sac(rank, lock, hyperps, shared_model, shared_optim, shared_msg_buff, pr
           print('Syncyng Shared Model')
           sac_agent.actor.load_state_dict(shared_model.state_dict())
 
+
+        wandb.log({'Episode_Cumulative_Reward' : cumulative_reward, 'epi':epi})
+
         if(total_steps >= hyperps['max_steps']):
           break
+
+
+
     
     print('Final Save')
     torch.save({
@@ -1472,7 +1487,7 @@ def double_phase(env, obs_state, num_actions, hyperps, wandb=None, device=torch.
     to_plot = []
 
     #[array([0.03867785]), array([-1.7760651]), array([0.06253806]), array([-5.08939411]), array([-0.1565633])]
-    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 0.5, 1, 5, 1, 1, 2
+    w_vel, w_t, w_dis, w_col, w_lan, w_waypoint = 4.5, 40, 5, 10, 10, 50
 
     rewards_weights = [w_vel, w_t, w_dis, w_col, w_lan, w_waypoint]
     change_rate = 0.1
