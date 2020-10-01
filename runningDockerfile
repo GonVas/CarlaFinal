@@ -27,6 +27,8 @@ ENV SDL_VIDEODRIVER=offscreen
 
 #RUN chown -R carla:carla /home/carla
 
+RUN pip install --user efficientnet_pytorch
+
 
 USER carla
 WORKDIR /home/carla
@@ -60,7 +62,7 @@ ENV WANDB_PROJECT carlaFinal
 
 RUN /home/carla/.local/bin/wandb on
 
-CMD ./CarlaUE4.sh -opengl & sleep 15 && python3 main.py --production
+CMD ./CarlaUE4.sh -opengl & sleep 15 && python3 sac_a3c.py --production
 
 #CMD python3 main.py --production
 

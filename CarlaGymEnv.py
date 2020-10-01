@@ -1650,7 +1650,7 @@ class CarEnv:
 
     def tickworld(self):
         if(not self.distributed):
-            if(self.rank == 0):
+            if(self.rank == 0 or self.rank < 0):
                 self.world.tick()
             else:
                 print('Not rank 0 ticking on CarlaGymEnv, please instanciate env with distributed=True or add Lock')
@@ -1661,7 +1661,7 @@ class CarEnv:
                 self.lock.release()
             else:
                 print('Env distributed but no lock, if not initial constructor then add lock.')
-                if(self.rank == 0):
+                if(self.rank == 0 or self.rank < 0):
                     self.world.tick()
 
 
