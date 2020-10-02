@@ -5,7 +5,7 @@
     "description": "Final Carla Training. 3 Agents, 5000 epoch Behaviour Cloning. Corrected Bias, reward no waypoint",
     "request": {
         "resources": {
-            "cpus": 6,
+            "cpus": 8,
             "gpus": 1,
             "cpuMemoryGb": 16,
             "clusterId": 6

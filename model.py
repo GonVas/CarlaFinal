@@ -415,6 +415,8 @@ class RLNetCritic(nn.Module):
 effnet_model = EfficientNet.from_pretrained('efficientnet-b1')
 tfms = transforms.Compose([transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),])
 
+
+
 class RLNetMSG(nn.Module):
 
     def __init__(self, action_size=2, size_mem=256, aditional_size=12, msg_size=32):
@@ -460,6 +462,8 @@ class RLNetMSG(nn.Module):
 
 
         return mu, log_std, hidden, self.msg_layer(F.relu(hidden))
+
+
 
 class RLNetCriticMSG(nn.Module):
 
@@ -522,11 +526,11 @@ if __name__ == '__main__':
 
     #rl_model = RLNetSum().cuda()
 
-    place_holder_pol = RLNetPlaceHolder()
-    place_holder_critic = RLNetCriticPlaceHolder()
+    #place_holder_pol = RLNetPlaceHolder()
+    #place_holder_critic = RLNetCriticPlaceHolder()
 
-    place_holder_pol(obs_imgs)
-    place_holder_critic(place_holder_pol, action)
+    #place_holder_pol(obs_imgs)
+    #place_holder_critic(place_holder_pol, action)
 
     #in_channels, action_size, aditional_size
     #rl_model = ResNetRLGRU(3, 2, 12)

@@ -67,6 +67,8 @@ from mpl_toolkits.mplot3d import Axes3D
 
 from scipy.stats import multivariate_normal
 
+import scipy.interpolate as interp
+
 from torch.distributions import Categorical, Normal
 import numpy as np
 
@@ -100,7 +102,7 @@ import argparse
 
 import CarlaGymEnv
 
-
+#from pytorch_memlab import MemReporter
 
 class DiskBuffer:
 
@@ -347,6 +349,21 @@ class SAC():
     print('Target Critic1 Device: '+str(next(self.targ_critic1.parameters()).device))
     print('Target Critic2 Device: '+str(next(self.targ_critic2.parameters()).device))
 
+  def mem_report(self):
+    self.actor_reporter = MemReporter(self.actor)
+    self.critic1_reporter = MemReporter(self.critic1)
+    self.critic2_reporter = MemReporter(self.critic2)
+    self.targ_critic1_reporter = MemReporter(self.targ_critic1)
+    self.targ_critic2_reporter = MemReporter(self.targ_critic2)
+
+
+  def mem_report_now(self):
+    self.actor_reporter.report(verbose=True)
+    self.critic1_reporter.report(verbose=True)
+    self.critic2_reporter.report(verbose=True)
+    self.targ_critic1_reporter.report(verbose=True)
+    self.targ_critic2_reporter.report(verbose=True)
+
 
 
   def prob_action(self, obs, action_to_calc):
@@ -561,6 +578,8 @@ def run_sac(env, hyperps, device, rank, shared_msg_list, save_dir='./nvme/', loa
     wandb.init(config=hyperps, project="gpulab")
 
 
+    size_image_to_work = (50, 150) 
+
     mem_max_size = hyperps['maxmem']
     mem_start_thr = 0.01
     mem_train_thr = 0.0125
@@ -575,6 +594,17 @@ def run_sac(env, hyperps, device, rank, shared_msg_list, save_dir='./nvme/', loa
     wandb.watch(sac_agent.actor)
     wandb.watch(sac_agent.critic1)
     wandb.watch(sac_agent.critic2)
+
+    #sac_agent.mem_report()
+
+    #sac_agent.mem_report_now()
+
+    #actor_mem_file = open("Actormem.txt", "w")
+
+    #actor_mem_file.write(str(sac_agent.actor_reporter.report(verbose=True)))
+    #actor_mem_file.write('Update: 0')
+
+    #time.sleep(15)
 
     wall_start = time.time()
 
@@ -610,10 +640,11 @@ def run_sac(env, hyperps, device, rank, shared_msg_list, save_dir='./nvme/', loa
 
     for epi in range(hyperps['max_epochs']):
 
-        obs = env.reset()
-        
-        old_obs = (tfms(torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device).squeeze(0)).unsqueeze(0), torch.FloatTensor(obs[1]).to(device))
-        
+        obs = env.reset() # 300, 900, 3 -> 1, 3, 300, 900
+
+        old_obs = (F.interpolate(tfms(torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device).squeeze(0)).unsqueeze(0), size=
+                  size_image_to_work), torch.FloatTensor(obs[1]).to(device))
+
         total_steps += 1
 
         print('Epoch: {}, Max Epochs: {}, max steps: {}, total_steps: {}, cumulative_reward: {}'.format(epi, hyperps['max_epochs'], hyperps['max_steps'], total_steps, cumulative_reward))
@@ -653,7 +684,8 @@ def run_sac(env, hyperps, device, rank, shared_msg_list, save_dir='./nvme/', loa
                 print(info)
            
 
-            obs = (tfms(torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device).squeeze(0)).unsqueeze(0), torch.FloatTensor(obs[1]).to(device))
+            obs = (F.interpolate(tfms(torch.Tensor(obs[0]).unsqueeze(0).transpose(1, 3).transpose(2, 3).float().to(device).squeeze(0)).unsqueeze(0), size=
+                    size_image_to_work), torch.FloatTensor(obs[1]).to(device))
 
             memory.push((old_obs[0].to("cpu"), old_obs[1].to("cpu")), old_hidden.to("cpu"), action.to("cpu"), reward, hidden.to("cpu"), (obs[0].to("cpu"), obs[1].to("cpu")), done, shared_msg_list[(rank + 1) % 2].to("cpu"), msg.to("cpu"))
 
@@ -690,6 +722,10 @@ def run_sac(env, hyperps, device, rank, shared_msg_list, save_dir='./nvme/', loa
                 critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = sac_agent.update(to_train_mem, updates, expert_data)
 
                 print('Trained Nets')
+
+                #sac_agent.actor_reporter.report()
+                #input()
+                #actor_mem_file.write('Update: {}'.format(updates))
 
                 if(total_steps != 0 and total_steps % 10 == 0):
                     print('Trained, len of mem: {}'.format(len(memory)))
@@ -728,7 +764,7 @@ def run_sac(env, hyperps, device, rank, shared_msg_list, save_dir='./nvme/', loa
 
         if(total_steps >= hyperps['max_steps']):
           break
-    
+    actor_mem_file.close()
     print('Final Save')
     torch.save({
             'steps': total_steps,
@@ -803,9 +839,9 @@ if __name__ == "__main__":
 
     if(args.production):
         #args.batch_size = 4
-        total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
+        #total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
         #args.batch_size = int((total_mem_mb - 3000)/260)
-        args.batch_size = 24
+        args.batch_size = 4
         args.epochs = 2_000_000 if args.epochs == 0 else args.epochs 
         args.maxram = 8
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
@@ -878,7 +914,7 @@ if __name__ == "__main__":
 
 
     #env = CarlaGymEnv.CarEnv(0, render=True, step_type="other", benchmark="Simple", auto_reset=False, discrete=False, sparse=args.sparse, dist_reward=True, display2d=False)
-    
+
 
     #final_nn = sac_simple_channel.run_sac_dist(hyperps)
 
@@ -897,14 +933,15 @@ if __name__ == "__main__":
 
 
     env = CarlaGymEnv.CarEnv(0, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=False)
-    time.sleep(15)
+    time.sleep(8)
     env1 = CarlaGymEnv.CarEnv(-1, render=False, step_type="other", benchmark="STDRandom", auto_reset=False, discrete=False, sparse=False, dist_reward=True, display2d=False, distributed=False)
 
 
     shared_msg_list = [torch.zeros(1, 32).float(), torch.zeros(1, 32).float()]
 
-    agent_1_gen = run_sac(env, hyperps, torch.device("cuda"), 0, shared_msg_list)
-    agent_2_gen = run_sac(env1, hyperps, torch.device("cuda"), -1, shared_msg_list)
+    agent_1_gen = run_sac(env, hyperps, torch.device("cpu"), 0, shared_msg_list)
+    agent_2_gen = run_sac(env1, hyperps, torch.device("cpu"), -1, shared_msg_list)
+
 
     while True:
     
@@ -913,4 +950,3 @@ if __name__ == "__main__":
 
         msg2 = next(agent_2_gen)
         print('MSG2: ' + str(msg2))
-
