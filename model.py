@@ -415,23 +415,28 @@ class RLNetCritic(nn.Module):
 effnet_model = EfficientNet.from_pretrained('efficientnet-b1')
 tfms = transforms.Compose([transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),])
 
-
+shared_encoder = EfficientNet.from_pretrained('efficientnet-b0')
 
 class RLNetMSG(nn.Module):
 
     def __init__(self, action_size=2, size_mem=256, aditional_size=12, msg_size=32):
         super(RLNetMSG, self).__init__()
-        self.encoder = EfficientNet.from_pretrained('efficientnet-b0')
+        self.encoder = shared_encoder
 
         self.aditional_size = aditional_size
 
         self.hidden = nn.GRUCell(1000 + aditional_size + msg_size, size_mem)
+
+        self.hidden_critic = nn.GRUCell(1000 + aditional_size + msg_size + 2, size_mem)
+
+        self.critic_layer = nn.Linear(size_mem, 1)
 
         self.msg_layer = nn.Linear(size_mem, msg_size)
 
         self.mu = nn.Linear(size_mem, action_size)
 
         self.log_std = nn.Linear(size_mem, action_size)
+
 
     def forward(self, all_x, msg):
 
@@ -441,14 +446,7 @@ class RLNetMSG(nn.Module):
 
         aditional_flat = aditional.reshape(-1, self.aditional_size)
         
-        x = x.reshape(-1, 1000)
-
-        #batch_size = aditional_flat.shape[0]
-        #dev = x[0].device
-
-        #x = torch.randn((batch_size, 1000)).to(dev)
-
-        
+        x = x.reshape(-1, 1000)        
 
         x_aug = torch.cat((x, aditional_flat, msg), dim=1)
 
@@ -464,12 +462,30 @@ class RLNetMSG(nn.Module):
         return mu, log_std, hidden, self.msg_layer(F.relu(hidden))
 
 
+    def critic(self, all_x, action, msg):
+
+        x, aditional, hidden = all_x
+
+        x = self.encoder(x)
+
+        aditional_flat = aditional.reshape(-1, self.aditional_size)
+        
+        x = x.reshape(-1, 1000)
+
+        x_aug = torch.cat((x, aditional_flat, action, msg), dim=1)
+
+        hidden = hidden.detach()
+
+        hidden = self.hidden_critic(x_aug, hidden)
+
+        return self.critic_layer(F.relu(hidden)), self.msg_layer(F.relu(hidden))
+
 
 class RLNetCriticMSG(nn.Module):
 
     def __init__(self, action_size=2, size_mem=256, aditional_size=12, msg_size=32):
         super(RLNetCriticMSG, self).__init__()
-        self.encoder = EfficientNet.from_pretrained('efficientnet-b0')
+        self.encoder = shared_encoder
 
         self.aditional_size = aditional_size
 

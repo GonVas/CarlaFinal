@@ -236,11 +236,12 @@ class SAC():
 
     self.actor = RLNetMSG().to(device) #ResNetRLGRU(3, 2, 12)(self.obs_state, self.num_actions).to(device) 
 
-    self.critic1 = RLNetCriticMSG().to(device)
-    self.critic2 = RLNetCriticMSG().to(device)
+    
+    self.critic1 = RLNetMSG().to(device)
+    self.critic2 = RLNetMSG().to(device)
 
-    self.targ_critic1 = RLNetCriticMSG().to(device)
-    self.targ_critic2 = RLNetCriticMSG().to(device)
+    self.targ_critic1 = RLNetMSG().to(device)
+    self.targ_critic2 = RLNetMSG().to(device)
 
     self.scaler = torch.cuda.amp.GradScaler()
     #self.policy_scaler = GradScaler()
@@ -291,15 +292,15 @@ class SAC():
 
 
   def critic(self, obs, action, msg):
-    c1, msg1 = self.critic1(obs, action, msg) 
-    c2, msg2 = self.critic2(obs, action, msg)
+    c1, msg1 = self.critic1.critic(obs, action, msg) 
+    c2, msg2 = self.critic2.critic(obs, action, msg)
 
     return c1, c2, msg1, msg2
 
 
   def critic_target(self, obs, action, msg):
-    c1, msg1 = self.targ_critic1(obs, action, msg) 
-    c2, msg2 = self.targ_critic2(obs, action, msg)
+    c1, msg1 = self.targ_critic1.critic(obs, action, msg) 
+    c2, msg2 = self.targ_critic2.critic(obs, action, msg)
 
     return c1, c2, msg1, msg2
 
@@ -841,7 +842,7 @@ if __name__ == "__main__":
         #args.batch_size = 4
         #total_mem_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2 
         #args.batch_size = int((total_mem_mb - 3000)/260)
-        args.batch_size = 4
+        args.batch_size = 16
         args.epochs = 2_000_000 if args.epochs == 0 else args.epochs 
         args.maxram = 8
         hyperps['maxmem'] = 500_000 # 10k -> 15GB, 500k -> 750GB
@@ -939,8 +940,8 @@ if __name__ == "__main__":
 
     shared_msg_list = [torch.zeros(1, 32).float(), torch.zeros(1, 32).float()]
 
-    agent_1_gen = run_sac(env, hyperps, torch.device("cpu"), 0, shared_msg_list)
-    agent_2_gen = run_sac(env1, hyperps, torch.device("cpu"), -1, shared_msg_list)
+    agent_1_gen = run_sac(env, hyperps, torch.device("cuda"), 0, shared_msg_list)
+    agent_2_gen = run_sac(env1, hyperps, torch.device("cuda"), -1, shared_msg_list)
 
 
     while True:
@@ -950,3 +951,14 @@ if __name__ == "__main__":
 
         msg2 = next(agent_2_gen)
         print('MSG2: ' + str(msg2))
+
+
+# Definir uma metodoligia:
+# - Que scenarios correr
+# - Quantas vezes 
+# - Metricas para cada scenario
+# - Scenario random, metrica ate ao objectivo
+#
+#
+
+
