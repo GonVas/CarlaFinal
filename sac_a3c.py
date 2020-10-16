@@ -860,9 +860,9 @@ if __name__ == "__main__":
         if not os.path.exists('./nvme/diskbuffer/'):
             os.makedirs('./nvme/diskbuffer/')
     else:
-        args.batch_size = 4
+        args.batch_size = 2
         # 1650MB cuda for batch 2, 1910 for batch 3, 2130 for batch 4, ~280MB per increase in batch size 
-        args.epochs = 1000 if args.epochs == 0  else args.epochs 
+        args.epochs = 10000 if args.epochs == 0  else args.epochs 
         args.maxram = 5
         args.no_cuda = False
         hyperps['maxmem'] = 1000
